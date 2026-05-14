@@ -25,7 +25,26 @@ import { PRESETS } from './presets.js';
 import { readUrl, syncUrl, persistedSelection, persistedHistory, prefs } from './storage.js';
 
 // ── Captura global de erros para diagnóstico ───────────────────────────────
+// Ignora ruído conhecido de extensões do Chrome que injetam content scripts
+// no localhost (Bitwarden, Grammarly, LastPass, ad blockers, etc.).
+const IGNORE_PATTERNS = [
+  /message channel closed/i,
+  /asynchronous response by returning true/i,
+  /Could not establish connection/i,
+  /Receiving end does not exist/i,
+  /Extension context invalidated/i,
+  /chrome-extension:\/\//i,
+  /moz-extension:\/\//i,
+];
+
+function isExtensionNoise(err) {
+  const msg = (err?.message || String(err) || '').toLowerCase();
+  const stack = (err?.stack || '').toLowerCase();
+  return IGNORE_PATTERNS.some((re) => re.test(msg) || re.test(stack));
+}
+
 function reportError(err, source) {
+  if (isExtensionNoise(err)) return; // ignora ruído de extensões
   console.error(`[${source}]`, err);
   try {
     fetch('/api/log-error', {
@@ -40,8 +59,20 @@ function reportError(err, source) {
     }).catch(() => {});
   } catch { /* nada */ }
 }
-window.addEventListener('error', (e) => reportError(e.error || e.message, 'window.error'));
-window.addEventListener('unhandledrejection', (e) => reportError(e.reason, 'unhandledrejection'));
+window.addEventListener('error', (e) => {
+  if (isExtensionNoise(e.error || e.message)) {
+    e.preventDefault?.(); // suprime no console
+    return;
+  }
+  reportError(e.error || e.message, 'window.error');
+});
+window.addEventListener('unhandledrejection', (e) => {
+  if (isExtensionNoise(e.reason)) {
+    e.preventDefault?.(); // suprime no console
+    return;
+  }
+  reportError(e.reason, 'unhandledrejection');
+});
 
 // ── Boot ────────────────────────────────────────────────────────────────────
 init().catch((err) => {
