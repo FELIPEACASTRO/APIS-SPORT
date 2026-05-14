@@ -36,12 +36,11 @@ export function httpLogger() {
   };
 }
 
-// Normalização leve para evitar explosão de cardinalidade em /api/catalog/:id
+// Normalização para evitar explosão de cardinalidade no Prometheus.
+// /api/catalog/123 → /api/catalog/:id
+// /api/foo/42/bar  → /api/foo/:id/bar
 function normalize(path) {
-  return path
-    .replace(/\/\d+(?:\/|$)/g, '/:id$&'.replace('/:id', '/:id/').replace(/\/$/, ''))
-    .replace(/\/:id\/\d+/g, '/:id') // safety
-    .replace(/^(\/api\/catalog)\/\d+$/, '$1/:id');
+  return path.replace(/\/(\d+)(?=\/|$)/g, '/:id');
 }
 
 export function clientIp(req) {

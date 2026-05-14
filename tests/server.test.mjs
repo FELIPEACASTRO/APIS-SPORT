@@ -269,3 +269,56 @@ test('404 em /api/* retorna JSON estruturado com request_id', async () => {
   assert.ok(r.body.error);
   assert.ok(r.body.request_id);
 });
+
+// ── Regressões da auditoria produção 2026-05-14 ────────────────────────────
+test('REGRESSÃO: JSON malformado retorna 400 (não 500)', async () => {
+  // Envia JSON sintaticamente quebrado
+  const r = await rawRequest('POST', '/api/invoke', '{"apiId":1,"mode":INVALID}', {
+    'content-type': 'application/json',
+  });
+  assert.equal(r.status, 400, 'JSON inválido deve ser 400, não 500');
+  assert.match(r.body.error, /JSON malformado/);
+  assert.ok(r.body.request_id);
+});
+
+test('REGRESSÃO: body > 64kb retorna 413 (não 500)', async () => {
+  const huge = '{"apiId":1,"endpoint":"' + 'x'.repeat(80_000) + '"}';
+  const r = await rawRequest('POST', '/api/invoke', huge, {
+    'content-type': 'application/json',
+  });
+  assert.equal(r.status, 413, 'body grande deve ser 413');
+  assert.match(r.body.error, /payload muito grande/);
+});
+
+// Helper raw que não força JSON.stringify no body — para testar
+// erros de parse.
+function rawRequest(method, path, rawBody, extraHeaders = {}) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(path, baseUrl);
+    const data = Buffer.from(rawBody);
+    const req = http.request(
+      {
+        hostname: url.hostname,
+        port: url.port,
+        path: url.pathname + url.search,
+        method,
+        headers: { 'content-length': data.length, ...extraHeaders },
+      },
+      (res) => {
+        let chunks = '';
+        res.on('data', (c) => (chunks += c));
+        res.on('end', () => {
+          const isJson = (res.headers['content-type'] || '').includes('application/json');
+          let parsed = chunks || null;
+          if (isJson && chunks) {
+            try { parsed = JSON.parse(chunks); } catch { /* keep raw */ }
+          }
+          resolve({ status: res.statusCode, headers: res.headers, body: parsed });
+        });
+      },
+    );
+    req.on('error', reject);
+    req.write(data);
+    req.end();
+  });
+}

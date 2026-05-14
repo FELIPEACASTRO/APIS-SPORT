@@ -232,16 +232,74 @@ async function runAll() {
     assert(r.headers['x-request-id'], 'X-Request-ID ausente');
   });
 
-  await step('Rate-limit headers presentes', async () => {
-    const r = await req('GET', '/api/health');
+  await step('Rate-limit headers presentes em rotas não-probe', async () => {
+    // /api/health é probe (isenta), usamos /api/catalog
+    const r = await req('GET', '/api/catalog?limit=1');
     assert(r.headers['x-ratelimit-limit'], 'X-RateLimit-Limit ausente');
     assert(r.headers['x-ratelimit-remaining'], 'X-RateLimit-Remaining ausente');
+  });
+
+  await step('Probes (/live, /ready, /health) isentas do rate-limit (sem headers)', async () => {
+    const r = await req('GET', '/api/live');
+    assert(!r.headers['x-ratelimit-limit'], '/api/live deveria ser isenta');
   });
 
   await step('Validation: mode inválido → 400 com details', async () => {
     const r = await req('POST', '/api/invoke', { apiId: 1, mode: 'invalid' });
     assert(r.status === 400);
     assert(Array.isArray(r.body.details));
+  });
+
+  // ── Regressões de auditoria de produção ──────────────────────────────────
+  await step('REGRESSÃO: JSON malformado → 400 (não 500)', async () => {
+    const r = await reqRaw('POST', '/api/invoke', '{"apiId":1,INVALID}',
+      { 'content-type': 'application/json' });
+    assert(r.status === 400, `esperado 400, recebido ${r.status}`);
+    assert(/JSON malformado/.test(r.body.error || ''));
+  });
+
+  await step('REGRESSÃO: body > 64kb → 413', async () => {
+    const huge = '{"apiId":1,"endpoint":"' + 'x'.repeat(80_000) + '"}';
+    const r = await reqRaw('POST', '/api/invoke', huge,
+      { 'content-type': 'application/json' });
+    assert(r.status === 413, `esperado 413, recebido ${r.status}`);
+  });
+
+  await step('REGRESSÃO: Path traversal /api/catalog/../../etc/passwd', async () => {
+    // Express normaliza o path antes do routing, cai no SPA fallback.
+    // Importante é não vazar nada do filesystem.
+    const r = await req('GET', '/api/catalog/../../etc/passwd');
+    // 200 com HTML (SPA fallback) OU 404 — ambos OK contanto que não exponha arquivo
+    assert(r.status === 200 || r.status === 404, `status inesperado: ${r.status}`);
+    if (typeof r.body === 'string') {
+      assert(!r.body.includes('root:'), 'NUNCA deve expor /etc/passwd');
+    }
+  });
+}
+
+// Variante "raw" para enviar body bruto (testar erros de parse)
+function reqRaw(method, path, body, headers) {
+  return new Promise((resolve, reject) => {
+    const data = Buffer.from(body);
+    const r = http.request(
+      {
+        host: '127.0.0.1', port: PORT, path, method,
+        headers: { 'content-length': data.length, ...headers },
+      },
+      (res) => {
+        let buf = '';
+        res.on('data', (c) => (buf += c));
+        res.on('end', () => {
+          const isJson = (res.headers['content-type'] || '').includes('application/json');
+          let parsed = buf;
+          if (isJson && buf) { try { parsed = JSON.parse(buf); } catch {} }
+          resolve({ status: res.statusCode, headers: res.headers, body: parsed });
+        });
+      },
+    );
+    r.on('error', reject);
+    r.write(data);
+    r.end();
   });
 }
 

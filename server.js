@@ -188,17 +188,27 @@ app.post('/api/invoke', invokeLimiter, validateBody(invokeSchema), async (req, r
 app.post('/api/invoke/batch', invokeLimiter, validateBody(invokeBatchSchema), async (req, res) => {
   const { items, mode, rapidApiKey } = req.validBody;
   const key = rapidApiKey || config.RAPIDAPI_KEY;
-  const results = await Promise.all(
-    items.map((item) =>
-      invokeApi({
-        apiId: item.apiId,
-        endpoint: item.endpoint,
-        mode: item.mode || mode,
-        query: item.query,
-        rapidApiKey: key,
-      }),
-    ),
-  );
+
+  // Para evitar sobrecarga do upstream em modo real, limitamos a 10 calls
+  // simultâneas. Mock é local — concorrência irrelevante.
+  const CONCURRENCY = 10;
+  const results = new Array(items.length);
+  for (let i = 0; i < items.length; i += CONCURRENCY) {
+    const chunk = items.slice(i, i + CONCURRENCY);
+    const chunkResults = await Promise.all(
+      chunk.map((item) =>
+        invokeApi({
+          apiId: item.apiId,
+          endpoint: item.endpoint,
+          mode: item.mode || mode,
+          query: item.query,
+          rapidApiKey: key,
+        }),
+      ),
+    );
+    for (let j = 0; j < chunkResults.length; j++) results[i + j] = chunkResults[j];
+  }
+
   for (const r of results) inc('invoke_total', { mode: r.mode, ok: String(r.ok) });
   const succeeded = results.filter((r) => r.ok).length;
   const failed = results.length - succeeded;

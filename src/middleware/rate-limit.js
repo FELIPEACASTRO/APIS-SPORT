@@ -6,6 +6,17 @@ import { config } from '../config.js';
 import { clientIp } from './http-logger.js';
 import { inc } from '../metrics.js';
 
+// Probes (K8s/health) e métricas NUNCA sofrem rate-limit — caso contrário
+// um cliente abusivo derruba a aplicação inteira via restart-loops.
+const PROBE_PATHS = new Set([
+  '/api/live',
+  '/api/ready',
+  '/api/health',
+  '/api/version',
+  '/api/metrics',
+  '/api/metrics/json',
+]);
+
 function createLimiter({ windowMs, max, label = 'global' }) {
   const buckets = new Map(); // ip -> { count, resetAt }
 
@@ -18,6 +29,8 @@ function createLimiter({ windowMs, max, label = 'global' }) {
 
   return (req, res, next) => {
     if (!config.RATE_LIMIT_ENABLED) return next();
+    // Probes não consomem cota nem geram resposta 429.
+    if (PROBE_PATHS.has(req.path)) return next();
     const ip = clientIp(req);
     const now = Date.now();
     let entry = buckets.get(ip);
