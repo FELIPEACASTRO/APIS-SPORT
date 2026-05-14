@@ -278,9 +278,11 @@ app.post('/api/invoke/batch', invokeLimiter, validateBody(invokeBatchSchema), as
 // ── SPA fallback (GET fora de /api/*) ───────────────────────────────────────
 app.use((req, res, next) => {
   if (req.method !== 'GET' || req.path.startsWith('/api/')) return next();
-  // Em dev, não cachear HTML — assim mudanças no index.html aparecem na hora
+  // Em dev, NÃO armazena cache do HTML — força browser a buscar sempre fresco
   if (config.NODE_ENV !== 'production') {
-    res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
   }
   res.type('html').send(INDEX_HTML);
 });
