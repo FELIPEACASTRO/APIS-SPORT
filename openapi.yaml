@@ -1,0 +1,269 @@
+openapi: 3.1.0
+info:
+  title: APIS // SPORT API
+  version: 3.0.0
+  description: |
+    Gateway interno para invocar as 302 APIs de apostas do RapidAPI.
+    Substitui o RapidAPI direto pelo seu próprio backend, mantendo a chave
+    privada no servidor e adicionando validação, rate limiting, métricas
+    e modo mock para QA.
+  contact:
+    name: FELIPEACASTRO
+    url: https://github.com/FELIPEACASTRO/APIS-SPORT
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:3000
+    description: Dev local
+  - url: https://apis-sport.example.com
+    description: Produção (substitua pelo seu domínio)
+
+tags:
+  - name: probes
+    description: Health/liveness/readiness/metrics
+  - name: catalog
+    description: Catálogo das 302 APIs
+  - name: invoke
+    description: Invocação das APIs (mock ou proxy real)
+
+paths:
+  /api/live:
+    get:
+      tags: [probes]
+      summary: Liveness probe
+      responses:
+        '200':
+          description: Processo vivo
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ok' }
+
+  /api/ready:
+    get:
+      tags: [probes]
+      summary: Readiness probe
+      responses:
+        '200': { description: Pronto para tráfego }
+        '503': { description: Não pronto (catálogo não carregado ou shutdown em curso) }
+
+  /api/health:
+    get:
+      tags: [probes]
+      summary: Health-check rico (uptime, memória, catálogo)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+
+  /api/version:
+    get:
+      tags: [probes]
+      summary: Build info
+      responses:
+        '200':
+          description: Versão da aplicação
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Version' }
+
+  /api/metrics:
+    get:
+      tags: [probes]
+      summary: Métricas em formato Prometheus
+      responses:
+        '200':
+          description: Texto plain Prometheus 0.0.4
+          content:
+            text/plain: {}
+
+  /api/metrics/json:
+    get:
+      tags: [probes]
+      summary: Snapshot de métricas em JSON
+      responses:
+        '200':
+          description: OK
+
+  /api/catalog:
+    get:
+      tags: [catalog]
+      summary: Lista o catálogo com filtros
+      parameters:
+        - { name: q, in: query, schema: { type: string }, description: Busca em name+provider+description+host }
+        - { name: subcategory, in: query, schema: { type: string } }
+        - { name: pricing, in: query, schema: { type: string, enum: [Freemium, Gratuito, Pago] } }
+        - { name: minPopularity, in: query, schema: { type: number, minimum: 0, maximum: 10 } }
+        - { name: sort, in: query, schema: { type: string, enum: [popularity, name, latency, success] } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500 } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: { type: integer }
+                  filters: { type: object }
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/BetApi' }
+
+  /api/catalog/stats:
+    get:
+      tags: [catalog]
+      summary: Estatísticas agregadas
+      responses:
+        '200': { description: OK }
+
+  /api/catalog/{id}:
+    get:
+      tags: [catalog]
+      summary: Detalhe de uma API
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1, maximum: 302 } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api: { $ref: '#/components/schemas/BetApi' }
+        '404': { description: API não encontrada }
+
+  /api/invoke:
+    post:
+      tags: [invoke]
+      summary: Invoca uma API
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InvokeRequest' }
+      responses:
+        '200':
+          description: Sucesso
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InvokeResult' }
+        '400': { description: Body inválido }
+        '429': { description: Rate limit excedido }
+        '502': { description: Erro do upstream (RapidAPI) }
+
+  /api/invoke/batch:
+    post:
+      tags: [invoke]
+      summary: Invoca até 50 APIs em paralelo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  minItems: 1
+                  maxItems: 50
+                  items: { $ref: '#/components/schemas/InvokeRequest' }
+                mode: { type: string, enum: [mock, real] }
+                rapidApiKey: { type: string }
+      responses:
+        '200': { description: Todas as chamadas OK }
+        '207':
+          description: Multi-status (algumas falharam)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: { type: integer }
+                  succeeded: { type: integer }
+                  failed: { type: integer }
+                  results:
+                    type: array
+                    items: { $ref: '#/components/schemas/InvokeResult' }
+        '413': { description: Mais de 50 itens }
+
+components:
+  schemas:
+    Ok:
+      type: object
+      properties:
+        status: { type: string, example: OK }
+        timestamp: { type: string, format: date-time }
+
+    Health:
+      type: object
+      properties:
+        status: { type: string, example: OK }
+        version: { type: string }
+        catalog_total: { type: integer, example: 302 }
+        uptime_s: { type: integer }
+        memory:
+          type: object
+          properties:
+            rss_mb: { type: integer }
+            heap_used_mb: { type: integer }
+        server_has_rapidapi_key: { type: boolean }
+        timestamp: { type: string, format: date-time }
+
+    Version:
+      type: object
+      properties:
+        version: { type: string }
+        catalog_source: { type: string }
+        catalog_total: { type: integer }
+        node_version: { type: string }
+        platform: { type: string }
+
+    BetApi:
+      type: object
+      properties:
+        id: { type: integer, minimum: 1, maximum: 302 }
+        name: { type: string }
+        subcategory: { type: string }
+        provider: { type: string, nullable: true }
+        pricing: { type: string, enum: [Freemium, Gratuito, Pago] }
+        popularity: { type: number, minimum: 0, maximum: 10 }
+        latency_ms: { type: integer }
+        success_rate_pct: { type: integer }
+        rapidapi_url: { type: string, format: uri }
+        rapidapi_host: { type: string }
+        description: { type: string }
+
+    InvokeRequest:
+      type: object
+      required: [apiId]
+      properties:
+        apiId: { type: integer, minimum: 1, maximum: 302 }
+        endpoint: { type: string, default: '/' }
+        mode: { type: string, enum: [mock, real], default: mock }
+        query:
+          type: object
+          additionalProperties: { type: string }
+        rapidApiKey:
+          type: string
+          description: Chave RapidAPI (opcional, sobrepõe a do servidor)
+
+    InvokeResult:
+      type: object
+      properties:
+        ok: { type: boolean }
+        api_id: { type: integer }
+        api_name: { type: string }
+        rapidapi_host: { type: string }
+        endpoint: { type: string }
+        mode: { type: string, enum: [mock, real] }
+        status: { type: integer }
+        duration_ms: { type: integer }
+        data: { type: object }
+        error: { type: string }
+        request_id: { type: string }

@@ -13,7 +13,6 @@ import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 const PORT = Number(process.env.SMOKE_PORT || 4900);
-const BASE = `http://127.0.0.1:${PORT}`;
 const JSON_OUT = process.argv.includes('--json');
 
 const cases = [];
@@ -22,21 +21,28 @@ let serverProc;
 // ── 1) sobe o servidor ──────────────────────────────────────────────────────
 async function startServer() {
   serverProc = spawn(process.execPath, ['server.js'], {
-    env: { ...process.env, PORT: String(PORT), LOG_LEVEL: 'silent' },
+    env: {
+      ...process.env,
+      PORT: String(PORT),
+      LOG_LEVEL: 'silent',
+      RATE_LIMIT_ENABLED: 'true',          // queremos validar os headers
+      RATE_LIMIT_MAX_REQUESTS: '10000',    // muito alto p/ não interferir
+      RATE_LIMIT_INVOKE_MAX: '10000',
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  // espera o "iniciado" sair no stdout
-  await new Promise((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error('Timeout subindo servidor')), 5000);
-    serverProc.stdout.on('data', (chunk) => {
-      if (chunk.toString().includes('iniciado')) {
-        clearTimeout(t);
-        resolve();
-      }
-    });
-    serverProc.on('error', reject);
-  });
-  await sleep(80);
+  // Polling em /api/live até responder ou estourar timeout
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    try {
+      const r = await req('GET', '/api/live');
+      if (r.status === 200) return;
+    } catch {
+      // ainda subindo
+    }
+    await sleep(80);
+  }
+  throw new Error('Timeout subindo servidor (>5s sem responder em /api/live)');
 }
 
 function stopServer() {
@@ -193,12 +199,49 @@ async function runAll() {
     assert(r.headers['x-content-type-options'] === 'nosniff');
     assert(r.headers['x-frame-options'] === 'DENY');
     assert(r.headers['referrer-policy'] === 'no-referrer');
+    assert(r.headers['content-security-policy'], 'CSP ausente');
+    assert(r.headers['strict-transport-security'], 'HSTS ausente');
     assert(!r.headers['x-powered-by'], 'x-powered-by deveria estar desabilitado');
   });
 
   await step('POST /api/invoke sem apiId → 400', async () => {
     const r = await req('POST', '/api/invoke', {});
     assert(r.status === 400);
+  });
+
+  // ── v3.0 production checks ──────────────────────────────────────────────
+  await step('GET /api/live → 200', async () => {
+    const r = await req('GET', '/api/live');
+    assert(r.status === 200);
+  });
+
+  await step('GET /api/ready → 200 catalog_ready=true', async () => {
+    const r = await req('GET', '/api/ready');
+    assert(r.status === 200);
+    assert(r.body.catalog_ready === true);
+  });
+
+  await step('GET /api/metrics retorna Prometheus text', async () => {
+    const r = await req('GET', '/api/metrics');
+    assert(r.status === 200);
+    assert(/app_uptime_seconds\s+\d+/.test(r.body), 'sem métrica app_uptime_seconds');
+  });
+
+  await step('Request-ID é exposto em response header', async () => {
+    const r = await req('GET', '/api/health');
+    assert(r.headers['x-request-id'], 'X-Request-ID ausente');
+  });
+
+  await step('Rate-limit headers presentes', async () => {
+    const r = await req('GET', '/api/health');
+    assert(r.headers['x-ratelimit-limit'], 'X-RateLimit-Limit ausente');
+    assert(r.headers['x-ratelimit-remaining'], 'X-RateLimit-Remaining ausente');
+  });
+
+  await step('Validation: mode inválido → 400 com details', async () => {
+    const r = await req('POST', '/api/invoke', { apiId: 1, mode: 'invalid' });
+    assert(r.status === 400);
+    assert(Array.isArray(r.body.details));
   });
 }
 

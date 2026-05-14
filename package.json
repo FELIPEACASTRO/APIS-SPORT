@@ -1,17 +1,22 @@
 {
   "name": "apis-sport",
-  "version": "2.1.0",
+  "version": "3.0.0",
   "type": "module",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "test": "node --test tests/*.test.mjs",
     "qa": "node scripts/qa-report.mjs",
     "qa:json": "node scripts/qa-report.mjs --json",
     "smoke": "node scripts/smoke-test.mjs",
     "smoke:json": "node scripts/smoke-test.mjs --json",
-    "homolog": "npm test && npm run qa && npm run smoke && node -e \"console.log('\\n══ HOMOLOGAÇÃO COMPLETA ══\\nVersão:',require('./package.json').version,'\\nNode:',process.version,'\\nDate:',new Date().toISOString(),'\\n')\""
+    "homolog": "npm run lint && npm test && npm run qa && npm run smoke && node -e \"const p=require('./package.json');console.log('\\n══ HOMOLOGAÇÃO COMPLETA ══\\nVersão:',p.version,'\\nNode:',process.version,'\\nDate:',new Date().toISOString(),'\\n')\"",
+    "docker:build": "docker build -t apis-sport:latest .",
+    "docker:run": "docker run --rm -p 3000:3000 apis-sport:latest",
+    "docker:compose": "docker compose up --build"
   },
   "engines": {
     "node": ">=20"
@@ -23,8 +28,11 @@
   "keywords": ["rapidapi", "bets", "odds", "sports-betting", "api-gateway"],
   "author": "",
   "license": "ISC",
-  "description": "Plataforma de invocação das 302 APIs de bets do RapidAPI — interface editorial + proxy + QA",
+  "description": "Plataforma production-grade de invocação das 302 APIs de bets do RapidAPI — interface editorial + proxy + QA + observability",
   "dependencies": {
     "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "eslint": "^9.14.0"
   }
 }

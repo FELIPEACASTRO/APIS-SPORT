@@ -3,6 +3,76 @@
 Formato: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versionamento: [SemVer](https://semver.org/).
 
+## [3.0.0] — 2026-05-14 — **Production-Grade Release**
+
+### Added (production hardening)
+- **Observabilidade Prometheus**
+  - `/api/metrics` (text exposition v0.0.4) com `http_requests_total`,
+    `http_request_duration_ms`, `http_errors_total`, `invoke_total`,
+    `rate_limit_blocked_total`, `app_uptime_seconds`.
+  - `/api/metrics/json` para snapshot rápido.
+- **Kubernetes probes**
+  - `/api/live` — liveness (sempre 200 enquanto vivo)
+  - `/api/ready` — readiness (503 quando catálogo não carregado ou shutting down)
+- **Structured logging** (`src/logger.js`)
+  - Formatos `pretty` (dev) e `json` (prod), níveis `debug/info/warn/error/silent`.
+  - Redaction automática de campos sensíveis (`rapidApiKey`, `authorization`, `cookie`).
+  - Request ID propagado em todos os logs.
+- **Pipeline de middleware production-grade** (`src/middleware/`)
+  - `request-id` — UUID por request, honra `X-Request-ID` do cliente.
+  - `http-logger` — log estruturado fim do request + atualização de métricas.
+  - `security` — CSP, HSTS, COOP, CORP, X-Frame-Options DENY, Permissions-Policy.
+  - `cors` — configurável via `CORS_ORIGIN` (lista ou `*`).
+  - `rate-limit` — sliding window in-memory, limites separados para global e `/invoke`.
+  - `validation` — schemas explícitos (`invokeSchema`, `invokeBatchSchema`).
+  - `error-handler` — 404 e 500 estruturados com `request_id`.
+- **Graceful shutdown** (`src/shutdown.js`)
+  - SIGTERM/SIGINT drain de conexões em `SHUTDOWN_GRACE_MS` (default 10s).
+  - Handlers para `uncaughtException` e `unhandledRejection`.
+  - Bloqueio de novas requests durante shutdown (mantém probes vivas).
+- **Configuração validada no boot** (`src/config.js`)
+  - Carregamento de `.env` sem dep externa.
+  - Validação de tipos/range — falha rápido se algo crítico estiver errado.
+  - Resumo logado no startup.
+- **Docker**
+  - `Dockerfile` multi-stage (deps → test → runtime), non-root user (uid 10001).
+  - Healthcheck embutido via `/api/live`.
+  - `STOPSIGNAL SIGTERM` para K8s rolling deploys.
+  - `.dockerignore` mínimo.
+  - `docker-compose.yml` para dev/homologação locais com resource limits.
+- **CI/CD** (`.github/workflows/ci.yml`)
+  - Job `test`: lint + unit tests + qa + smoke em Ubuntu/Node 22.
+  - Job `docker`: build da imagem + probe ao vivo (live/ready/health/metrics).
+- **Quality tooling**
+  - `eslint.config.js` (flat config, zero deps customizadas) — `npm run lint`.
+  - `.editorconfig` para consistência cross-IDE.
+  - `LICENSE` MIT.
+- **Documentação**
+  - `openapi.yaml` — spec OpenAPI 3.1 completa para todos os endpoints.
+  - `OPERATIONS.md` — runbook operacional (deploy, troubleshooting, SLOs, K8s manifests).
+
+### Changed
+- **Versão** `2.1.0 → 3.0.0`.
+- **Lint passa a fazer parte do `npm run homolog`** (lint + test + qa + smoke).
+- **Server.js refatorado** para usar pipeline de middleware modular.
+- **Smoke test** expandido para 25 cenários (incluindo probes, metrics, headers, validação).
+- **Server tests** expandidos para 45 cenários (de 32).
+- **`req.body` é validado** antes de chegar nos handlers (request_id propagado em todos os erros 4xx/5xx).
+- **Rate-limit aplicado** globalmente + extra strict em `/api/invoke*`.
+
+### Security
+- CSP enforced no servidor (`default-src 'self'`, sem `unsafe-eval`, sem `unsafe-inline` JS).
+- HSTS (1 ano, includeSubDomains).
+- COOP `same-origin`, CORP `same-site`.
+- Redaction automática de chaves sensíveis em logs.
+- Validation rejeita body malformado antes da lógica de negócio.
+
+### Operations
+- Endpoints prontos para K8s (liveness, readiness, prometheus).
+- Métricas instrumentadas em todo o pipeline HTTP + invoke.
+- Logs estruturados em JSON para ELK/Datadog/Loki via `LOG_FORMAT=json`.
+- Graceful shutdown coordenado com `STOPSIGNAL SIGTERM` do Docker.
+
 ## [2.1.0] — 2026-05-12
 
 ### Added (homologação)

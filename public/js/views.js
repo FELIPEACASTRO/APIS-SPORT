@@ -1,7 +1,7 @@
 // public/js/views.js
 // Render do catálogo, da sessão e dos resultados. Sem React — DOM nativo + templates.
 
-import { $, $$, pad3, prettyJson, toTreeHTML, escape, downloadJson, copyToClipboard } from './format.js';
+import { $, $$, pad3, prettyJson, toTreeHTML, escape, copyToClipboard } from './format.js';
 import { toastOk, toastInfo } from './toast.js';
 
 let _renderCallbacks = {};

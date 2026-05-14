@@ -1,6 +1,11 @@
 # APIS&nbsp;//&nbsp;SPORT
 
-> Terminal editorial para invocar as **302 APIs de apostas esportivas** do RapidAPI mapeadas no dossiê de 11/05/2026.
+[![CI](https://img.shields.io/github/actions/workflow/status/FELIPEACASTRO/APIS-SPORT/ci.yml?label=CI)](https://github.com/FELIPEACASTRO/APIS-SPORT/actions)
+[![Node](https://img.shields.io/badge/node-22%2B-brightgreen)](#)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Version](https://img.shields.io/badge/version-3.0.0-blueviolet)](CHANGELOG.md)
+
+> Plataforma **production-grade** para invocar as **302 APIs de apostas esportivas** do RapidAPI mapeadas no dossiê de 11/05/2026.
 
 Selecionar uma ou várias APIs, clicar **Buscar** e ver a resposta organizada — com modo `Mock` (sem chave, ideal para QA) e modo `Real` (proxy via RapidAPI).
 
@@ -53,19 +58,28 @@ Para usar modo real, ou cole sua chave na UI (campo `RapidAPI Key`) ou exporte `
 ## Comandos
 
 ```bash
-npm start                        # produção
-npm run dev                      # com --watch
-npm test                         # node --test — 32 testes
-npm run qa                       # QA report em terminal (3 checks · 302/302 mock)
-npm run qa -- --real             # acrescenta amostra real (precisa RAPIDAPI_KEY)
-npm run qa:json                  # mesmo QA em JSON (CI-friendly)
-npm run smoke                    # smoke test end-to-end (19 cenários)
-npm run smoke:json               # smoke em JSON
-npm run homolog                  # pipeline COMPLETO de homologação: test + qa + smoke
+npm start                  # produção (Node)
+npm run dev                # --watch
+npm run lint               # ESLint (zero erros é requisito)
+npm test                   # 45 testes unitários
+npm run qa                 # QA report — 302/302 mock-302 OK
+npm run qa -- --real       # + amostra real (requer RAPIDAPI_KEY)
+npm run smoke              # 25 cenários end-to-end
+npm run homolog            # pipeline completo: lint + test + qa + smoke
+npm run docker:build       # docker build .
+npm run docker:run         # docker run apis-sport:latest
+npm run docker:compose     # docker compose up --build
 ```
 
-Para **homologação do cliente** veja [HOMOLOGACAO.md](HOMOLOGACAO.md).
-Para **release notes** veja [CHANGELOG.md](CHANGELOG.md).
+## Documentação
+
+| Arquivo | Para quê |
+|---|---|
+| [HOMOLOGACAO.md](HOMOLOGACAO.md) | Roteiro UAT do cliente |
+| [OPERATIONS.md](OPERATIONS.md) | Runbook operacional (deploy, troubleshooting, SLOs, K8s) |
+| [CHANGELOG.md](CHANGELOG.md) | Release notes |
+| [openapi.yaml](openapi.yaml) | Spec OpenAPI 3.1 dos endpoints |
+| [data/bets-apis/CATALOG.md](data/bets-apis/CATALOG.md) | Catálogo legível das 302 APIs |
 
 ### Variáveis de ambiente
 
