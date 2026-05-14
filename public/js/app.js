@@ -44,15 +44,14 @@ window.addEventListener('error', (e) => reportError(e.error || e.message, 'windo
 window.addEventListener('unhandledrejection', (e) => reportError(e.reason, 'unhandledrejection'));
 
 // ── Boot ────────────────────────────────────────────────────────────────────
-// Wire dos botões do boot error JÁ no carregamento — assim funcionam
-// mesmo se o init() falhar antes de chegar lá.
+// Wire dos botões do boot error JÁ no carregamento (caso necessário).
 wireBootError();
 
 init().catch((err) => {
-  console.error(err);
+  console.error('[init crashed]', err);
   reportError(err, 'init');
   renderStatus({ state: 'error', label: 'falha' });
-  showBootError(err);
+  toastError('Erro na inicialização: ' + (err.message || 'desconhecido'));
 });
 
 async function init() {
@@ -81,29 +80,45 @@ async function init() {
     results: savedHistory,
   });
 
-  // 2) health + catalog inicial em paralelo
-  try {
-    const [health, catalog, stats] = await Promise.all([
-      fetchHealth(),
-      fetchCatalog(state.get().filters),
-      fetchStats(),
-    ]);
+  // 2) Fetches em paralelo com tolerância a falhas — NÃO bloqueia mais
+  //    a aplicação inteira se alguma chamada falhar. Continua com defaults.
+  const [healthR, catalogR, statsR] = await Promise.allSettled([
+    fetchHealth(),
+    fetchCatalog(state.get().filters),
+    fetchStats(),
+  ]);
 
-    state.set({
-      serverHasKey: health.server_has_rapidapi_key,
-      catalog: catalog.items,
-      filtered: state.get().hideEmpty
-        ? catalog.items.filter((a) => a.popularity > 0)
-        : catalog.items,
-      stats,
-    });
+  const health = healthR.status === 'fulfilled' ? healthR.value : null;
+  const catalog = catalogR.status === 'fulfilled' ? catalogR.value : { items: [] };
+  const stats = statsR.status === 'fulfilled' ? statsR.value : null;
+
+  state.set({
+    serverHasKey: health?.server_has_rapidapi_key || false,
+    catalog: catalog.items,
+    filtered: state.get().hideEmpty
+      ? catalog.items.filter((a) => a.popularity > 0)
+      : catalog.items,
+    stats,
+  });
+
+  // Notifica falhas individuais via toast (não bloqueia a UI)
+  const failures = [];
+  if (healthR.status === 'rejected') failures.push('health');
+  if (catalogR.status === 'rejected') failures.push('catálogo');
+  if (statsR.status === 'rejected') failures.push('stats');
+
+  if (failures.length === 0) {
     renderStatus({ state: 'ok', label: 'pronto' });
-    if (health.server_has_rapidapi_key) {
+    if (health?.server_has_rapidapi_key) {
       toastInfo('Chave RapidAPI detectada no servidor — modo real disponível.');
     }
-  } catch (err) {
+  } else if (failures.length < 3) {
+    renderStatus({ state: 'ok', label: 'parcial' });
+    toastWarn(`Falha ao carregar: ${failures.join(', ')}. App continua disponível.`);
+  } else {
+    // Todas falharam — provavelmente servidor offline
     renderStatus({ state: 'error', label: 'offline' });
-    throw err;
+    toastError('Servidor não respondeu. Tente recarregar a página.');
   }
 
   // 3) Sincronizar inputs com state hidratado
