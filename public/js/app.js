@@ -22,29 +22,55 @@ import { initPalette } from './palette.js';
 import { initKeyboard } from './keyboard.js';
 import { toastOk, toastInfo, toastWarn, toastError } from './toast.js';
 import { PRESETS } from './presets.js';
+import { readUrl, syncUrl, persistedSelection, persistedHistory, prefs } from './storage.js';
 
 // ── Boot ────────────────────────────────────────────────────────────────────
 init().catch((err) => {
   console.error(err);
   renderStatus({ state: 'error', label: 'falha' });
-  toastError(err.message, 'Erro fatal na inicialização');
+  showBootError(err);
 });
 
 async function init() {
+  hideBootError();
   renderStatus({ state: 'pending', label: 'conectando…' });
 
-  // 1) health + catalog inicial em paralelo
+  // 1) Hidratar URL + localStorage ANTES do fetch
+  const urlState = readUrl();
+  const savedSelection = persistedSelection.load();
+  const savedHistory = persistedHistory.load();
+
+  if (urlState.tab && ['catalog', 'session', 'dashboard'].includes(urlState.tab)) {
+    state.set({ tab: urlState.tab });
+  }
+  state.set({
+    filters: {
+      query: urlState.q || '',
+      subcategory: urlState.sub || '',
+      pricing: urlState.pricing || '',
+      minPopularity: urlState.pop || 0,
+      sort: urlState.sort || 'popularity',
+    },
+    mode: urlState.mode || 'mock',
+    hideEmpty: !!urlState.hideEmpty,
+    selected: savedSelection,
+    results: savedHistory,
+  });
+
+  // 2) health + catalog inicial em paralelo
   try {
     const [health, catalog, stats] = await Promise.all([
       fetchHealth(),
-      fetchCatalog({ sort: 'popularity' }),
+      fetchCatalog(state.get().filters),
       fetchStats(),
     ]);
 
     state.set({
       serverHasKey: health.server_has_rapidapi_key,
       catalog: catalog.items,
-      filtered: catalog.items,
+      filtered: state.get().hideEmpty
+        ? catalog.items.filter((a) => a.popularity > 0)
+        : catalog.items,
       stats,
     });
     renderStatus({ state: 'ok', label: 'pronto' });
@@ -56,7 +82,11 @@ async function init() {
     throw err;
   }
 
-  // 2) Wire-up
+  // 3) Sincronizar inputs com state hidratado
+  syncFilterInputs();
+  syncOtherInputs();
+
+  // 4) Wire-up
   bindRender({
     onToggle: toggleSelected,
     onOpenDrawer: openDrawer,
@@ -67,6 +97,7 @@ async function init() {
   wireSession();
   wireTray();
   wireOverlays();
+  wireBootError();
 
   // 3) Palette (precisa existir antes dos atalhos que referenciam .open())
   const paletteCtrl = initPalette({
@@ -86,7 +117,7 @@ async function init() {
     closeAll:       () => closeAllOverlays(),
   });
 
-  // 5) State → render reativo
+  // 5) State → render reativo + persistência
   state.on((s) => {
     renderCounters(s);
     renderCatalog(s);
@@ -94,10 +125,33 @@ async function init() {
     renderActiveFilters(s, removeFilter);
     renderModeFields(s);
     renderResults(s);
+    // Persist seleção e histórico
+    persistedSelection.save(s.selected);
+    persistedHistory.save(s.results);
+    // Sync URL
+    syncUrl({ tab: s.tab, filters: s.filters, mode: s.mode, hideEmpty: s.hideEmpty });
   });
 
   // Render inicial
   renderTab(state.get().tab);
+  if (state.get().tab === 'dashboard') refreshDashboard();
+
+  // Onboarding na primeira visita
+  if (!prefs.hasSeenOnboarding()) {
+    setTimeout(() => $('#onboarding').showModal(), 400);
+  }
+}
+
+// ── Boot error screen ──────────────────────────────────────────────────────
+function showBootError(err) {
+  const el = $('#boot-error');
+  $('#boot-error-msg').textContent = err.message || 'Falha desconhecida.';
+  $('#boot-error-stack').textContent = err.stack || String(err);
+  el.hidden = false;
+}
+function hideBootError() { $('#boot-error').hidden = true; }
+function wireBootError() {
+  $('#boot-error-retry').addEventListener('click', () => location.reload());
 }
 
 // ── Tabs ────────────────────────────────────────────────────────────────────
@@ -221,6 +275,13 @@ function syncFilterInputs() {
   $('#f-pricing').value     = f.pricing || '';
   $('#f-minpop').value      = String(f.minPopularity || 0);
   $('#f-sort').value        = f.sort || 'popularity';
+  $('#f-hide-empty').checked = !!state.get().hideEmpty;
+}
+
+function syncOtherInputs() {
+  const s = state.get();
+  // Mode radio
+  $$('input[name="mode"]').forEach((r) => { r.checked = r.value === s.mode; });
 }
 
 // ── Selection ───────────────────────────────────────────────────────────────
@@ -237,8 +298,30 @@ function selectAllVisible() {
   toastOk(`${state.get().filtered.length} adicionadas à seleção.`);
 }
 function clearSelection() {
+  const previous = new Set(state.get().selected);
+  if (previous.size === 0) return;
   state.set({ selected: new Set() });
-  toastInfo('Seleção limpa.');
+  // Undo (restaura em 4s)
+  toastWithAction(`${previous.size} seleção(ões) removidas`, 'Desfazer', () => {
+    state.set({ selected: previous });
+    toastInfo('Seleção restaurada.');
+  });
+}
+
+function toastWithAction(body, actionLabel, onAction) {
+  // simples: por enquanto, usa toastInfo com botão renderizado via DOM
+  // limitação atual do toast.js: vamos só logar e usar prompt
+  // melhor solução: mensagem com tempo extra + atalho
+  const handler = () => { onAction(); document.removeEventListener('keydown', keyHandler); };
+  const keyHandler = (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+      e.preventDefault();
+      handler();
+    }
+  };
+  document.addEventListener('keydown', keyHandler);
+  setTimeout(() => document.removeEventListener('keydown', keyHandler), 5000);
+  toastInfo(`${body} · ${actionLabel.toLowerCase()} com Ctrl+Z`);
 }
 
 // ── Session ─────────────────────────────────────────────────────────────────
@@ -262,8 +345,13 @@ function wireSession() {
     toastOk('Arquivo JSON baixado.');
   });
   $('#btn-clear-results').addEventListener('click', () => {
+    const previous = [...state.get().results];
+    if (previous.length === 0) return;
     state.set({ results: [] });
-    toastInfo('Resultados limpos.');
+    toastWithAction(`${previous.length} resultado(s) limpos`, 'Desfazer', () => {
+      state.set({ results: previous });
+      toastInfo('Resultados restaurados.');
+    });
   });
 }
 
@@ -271,12 +359,15 @@ function wireSession() {
 function wireTray() {
   $('#btn-execute').addEventListener('click', executeSelected);
   $('#btn-clear-selection').addEventListener('click', clearSelection);
+  $('#btn-cancel').addEventListener('click', cancelExecution);
   $('#tray-toggle').addEventListener('click', () => {
-    const cur = $('#tray-toggle').getAttribute('aria-expanded') === 'true';
-    $('#tray-toggle').setAttribute('aria-expanded', String(!cur));
-    setTab('catalog'); // ergonomia: volta para a aba que importa
+    // Em mobile, volta para Catálogo para revisar a seleção.
+    // Em desktop, simplesmente foca o primeiro chip.
+    setTab('catalog');
   });
 }
+
+let _executeAbort = null;
 
 async function executeSelected() {
   const s = state.get();
@@ -292,10 +383,21 @@ async function executeSelected() {
     return;
   }
 
+  // Confirmar batch grande em modo real (consome cota)
+  if (s.mode === 'real' && s.selected.size > 20) {
+    const ok = await confirmDialog({
+      title: 'Batch grande em modo real',
+      body: `Você está prestes a executar <strong>${s.selected.size} chamadas reais</strong> ao RapidAPI. Isso vai consumir cota da sua chave. Deseja continuar?`,
+      confirmText: 'Executar',
+    });
+    if (!ok) return;
+  }
+
   // muda para sessão para o usuário ver os resultados
   setTab('session');
 
   state.set({ invoking: true });
+  toggleCancelButton(true);
 
   const ids = Array.from(s.selected);
   const items = ids.map((apiId) => ({
@@ -322,11 +424,13 @@ async function executeSelected() {
   });
   state.set({ results: [...s.results, ...pending] });
 
+  _executeAbort = new AbortController();
   try {
     const j = await invokeBatch({
       items,
       mode: s.mode,
       rapidApiKey: s.mode === 'real' ? s.rapidApiKey : undefined,
+      signal: _executeAbort.signal,
     });
 
     // remove os pendentes desta invocação e empilha os reais
@@ -343,23 +447,86 @@ async function executeSelected() {
   } catch (err) {
     const results = state.get().results.filter((r) => !r._pending);
     state.set({ results });
-    toastError(`Erro de rede: ${err.message}`);
+    if (err.name === 'AbortError') {
+      toastInfo('Execução cancelada pelo usuário.');
+    } else {
+      toastError(`Erro de rede: ${err.message}`);
+    }
   } finally {
     state.set({ invoking: false });
+    toggleCancelButton(false);
+    _executeAbort = null;
   }
+}
+
+function cancelExecution() {
+  if (_executeAbort) {
+    _executeAbort.abort();
+  }
+}
+function toggleCancelButton(visible) {
+  const btn = $('#btn-cancel');
+  if (btn) btn.hidden = !visible;
 }
 
 // ── Drawer & Overlays ───────────────────────────────────────────────────────
 function wireOverlays() {
+  // Drawer
   $('#drawer-close').addEventListener('click', () => $('#drawer').close());
   $('#drawer').addEventListener('click', (e) => {
     if (e.target === $('#drawer')) $('#drawer').close();
   });
 
+  // Shortcuts modal
   $('#open-shortcuts').addEventListener('click', () => $('#shortcuts').showModal());
   $('[data-close="shortcuts"]').addEventListener('click', () => $('#shortcuts').close());
   $('#shortcuts').addEventListener('click', (e) => {
     if (e.target === $('#shortcuts')) $('#shortcuts').close();
+  });
+
+  // Onboarding modal
+  $('#open-help').addEventListener('click', () => $('#onboarding').showModal());
+  $$('#onboarding [data-close="onboarding"]').forEach((b) =>
+    b.addEventListener('click', () => {
+      prefs.markOnboarded();
+      $('#onboarding').close();
+    }),
+  );
+  $('#onboarding').addEventListener('click', (e) => {
+    if (e.target === $('#onboarding')) { prefs.markOnboarded(); $('#onboarding').close(); }
+  });
+  $('#onboarding [data-action="open-shortcuts-from-onboarding"]').addEventListener('click', () => {
+    prefs.markOnboarded();
+    $('#onboarding').close();
+    $('#shortcuts').showModal();
+  });
+}
+
+// ── Confirm dialog ─────────────────────────────────────────────────────────
+function confirmDialog({ title, body, confirmText = 'Confirmar' }) {
+  return new Promise((resolve) => {
+    const dlg = $('#confirm');
+    $('#confirm-title').textContent = title || 'Confirmar';
+    $('#confirm-body').innerHTML = body || '';
+    const btnOk = dlg.querySelector('[data-confirm="ok"]');
+    const btnCancel = dlg.querySelector('[data-confirm="cancel"]');
+    btnOk.textContent = confirmText;
+
+    const cleanup = (result) => {
+      btnOk.removeEventListener('click', onOk);
+      btnCancel.removeEventListener('click', onCancel);
+      dlg.removeEventListener('close', onClose);
+      dlg.close();
+      resolve(result);
+    };
+    const onOk = () => cleanup(true);
+    const onCancel = () => cleanup(false);
+    const onClose = () => resolve(false);
+
+    btnOk.addEventListener('click', onOk);
+    btnCancel.addEventListener('click', onCancel);
+    dlg.addEventListener('close', onClose);
+    dlg.showModal();
   });
 }
 
@@ -371,7 +538,7 @@ function openDrawer(id) {
 }
 
 function closeAllOverlays() {
-  ['#palette', '#drawer', '#shortcuts'].forEach((sel) => {
+  ['#palette', '#drawer', '#shortcuts', '#onboarding', '#confirm'].forEach((sel) => {
     const el = $(sel);
     if (el?.open) el.close();
   });

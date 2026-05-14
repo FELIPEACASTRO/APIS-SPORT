@@ -27,11 +27,12 @@ export async function fetchStats() {
   return r.json();
 }
 
-export async function invokeBatch({ items, mode, rapidApiKey }) {
+export async function invokeBatch({ items, mode, rapidApiKey, signal }) {
   const r = await fetch('/api/invoke/batch', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ items, mode, rapidApiKey: rapidApiKey || undefined }),
+    signal,
   });
   return r.json();
 }

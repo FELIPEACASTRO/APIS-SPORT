@@ -253,6 +253,7 @@ export function renderDrawer(api) {
     </p>
     <div class="drawer__cta">
       <button class="action" data-action="copy-host">Copiar host</button>
+      <button class="action" data-action="copy-curl">Copiar como cURL</button>
       <button class="action" data-action="select">Selecionar</button>
       <a class="action action--ghost" href="${escape(api.rapidapi_url)}" target="_blank" rel="noopener">
         Abrir no RapidAPI ↗
@@ -262,6 +263,14 @@ export function renderDrawer(api) {
   $('#drawer-body [data-action="copy-host"]').addEventListener('click', async () => {
     const ok = await copyToClipboard(api.rapidapi_host);
     if (ok) toastOk(`Host de "${api.name}" copiado.`);
+  });
+  $('#drawer-body [data-action="copy-curl"]').addEventListener('click', async () => {
+    const curl = `curl --request GET \\
+  --url 'https://${api.rapidapi_host}/' \\
+  --header 'X-RapidAPI-Key: SUA_CHAVE_RAPIDAPI' \\
+  --header 'X-RapidAPI-Host: ${api.rapidapi_host}'`;
+    const ok = await copyToClipboard(curl);
+    if (ok) toastOk('Comando cURL copiado (substitua SUA_CHAVE_RAPIDAPI).');
   });
   $('#drawer-body [data-action="select"]').addEventListener('click', () => {
     _renderCallbacks.onToggle?.(api.id);

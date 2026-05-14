@@ -127,6 +127,68 @@ body {
 }
 
 /* ============================================================================
+   SKIP LINK — primeiro elemento focável para teclado/leitores de tela
+   ========================================================================== */
+.skip-link {
+  position: fixed;
+  top: -100px;
+  left: 16px;
+  z-index: 9999;
+  padding: 10px 16px;
+  background: var(--volt);
+  color: var(--bg);
+  font-family: var(--ff-mono);
+  font-size: var(--fs-mono-sm);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  border-radius: var(--rad);
+  text-decoration: none;
+  transition: top var(--dur);
+}
+.skip-link:focus { top: 12px; }
+
+/* ============================================================================
+   SKELETON LOADING
+   ========================================================================== */
+.catalog-item--skeleton {
+  display: grid;
+  grid-template-columns: 60px 1fr 110px;
+  gap: var(--space-3);
+  pointer-events: none;
+}
+.sk {
+  display: block;
+  height: 12px;
+  background: linear-gradient(90deg, var(--surface-2) 0%, var(--surface-3) 50%, var(--surface-2) 100%);
+  background-size: 200% 100%;
+  border-radius: var(--rad-sm);
+  animation: skeletonShimmer 1.6s ease-in-out infinite;
+  margin-bottom: 8px;
+}
+.sk:last-child { margin-bottom: 0; }
+.sk-40 { width: 40%; } .sk-45 { width: 45%; } .sk-50 { width: 50%; }
+.sk-55 { width: 55%; } .sk-60 { width: 60%; } .sk-65 { width: 65%; }
+.sk-70 { width: 70%; } .sk-75 { width: 75%; } .sk-80 { width: 80%; }
+.sk-85 { width: 85%; } .sk-90 { width: 90%; } .sk-95 { width: 95%; }
+@keyframes skeletonShimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Spinner inline para catalog-meta */
+.catalog-meta__spinner {
+  display: inline-block;
+  width: 10px; height: 10px;
+  margin-right: 8px;
+  border: 2px solid var(--line-2);
+  border-top-color: var(--volt);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  vertical-align: -1px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ============================================================================
    TOPBAR
    ========================================================================== */
 .topbar {
@@ -1359,6 +1421,67 @@ input::placeholder { color: var(--ink-dim); font-style: italic; }
   display: flex; gap: var(--space-2); align-items: center;
 }
 
+/* Boot error screen */
+.boot-error {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(10,9,8,0.96);
+  backdrop-filter: blur(8px);
+  display: flex; align-items: center; justify-content: center;
+  padding: var(--space-5);
+}
+.boot-error__card {
+  max-width: 480px;
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-left: 3px solid var(--risk);
+  border-radius: var(--rad-lg);
+  padding: var(--space-6);
+  display: flex; flex-direction: column;
+  gap: var(--space-3);
+}
+.boot-error__icon {
+  font-size: 2.5rem;
+  color: var(--risk);
+  font-family: var(--ff-display);
+}
+.boot-error h2 {
+  font-family: var(--ff-display);
+  font-variation-settings: "opsz" 72, "wght" 500;
+  font-style: italic;
+  font-size: 1.5rem;
+  color: var(--ink);
+}
+.boot-error p {
+  font-family: var(--ff-body);
+  color: var(--ink-muted);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+.boot-error details {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--rad);
+  padding: var(--space-2) var(--space-3);
+}
+.boot-error details summary {
+  cursor: pointer;
+  font-family: var(--ff-mono);
+  font-size: var(--fs-mono-sm);
+  color: var(--ink-muted);
+}
+.boot-error pre {
+  font-family: var(--ff-mono);
+  font-size: 0.7rem;
+  color: var(--ink-dim);
+  margin: var(--space-2) 0 0;
+  white-space: pre-wrap;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
 /* The big Executar CTA */
 .cta {
   position: relative;
@@ -1381,10 +1504,32 @@ input::placeholder { color: var(--ink-dim); font-style: italic; }
 }
 .cta:not(:disabled):active { transform: none; }
 .cta:disabled { background: var(--surface-3); color: var(--ink-dim); cursor: not-allowed; }
+.cta__inner {
+  display: inline-flex; align-items: center; gap: var(--space-3);
+  position: relative;
+  z-index: 2;
+}
+.cta__progress {
+  position: absolute; left: 0; bottom: 0;
+  height: 3px;
+  width: 0%;
+  background: rgba(10,9,8,0.6);
+  transition: width var(--dur);
+  z-index: 1;
+}
+.cta[data-loading="true"] .cta__progress {
+  animation: ctaIndeterminate 1.2s ease-in-out infinite;
+}
+@keyframes ctaIndeterminate {
+  0%   { left: 0;    width: 0%; }
+  50%  { left: 30%;  width: 40%; }
+  100% { left: 100%; width: 0%; }
+}
 .cta[data-loading="true"]::before {
   content: ""; position: absolute; inset: 0;
-  background: repeating-linear-gradient(45deg, rgba(10,9,8,0.15) 0 6px, transparent 6px 12px);
+  background: repeating-linear-gradient(45deg, rgba(10,9,8,0.12) 0 6px, transparent 6px 12px);
   animation: stripeRun 0.6s linear infinite;
+  z-index: 0;
 }
 @keyframes stripeRun {
   to { background-position: 24px 0; }
@@ -1653,6 +1798,96 @@ dialog::backdrop {
 .modal__close svg { width: 16px; height: 16px; }
 .modal__body { padding: var(--space-5); }
 
+.modal--lg {
+  width: min(640px, calc(100vw - 32px));
+}
+
+/* Onboarding modal específico */
+.modal__head h2 em {
+  font-style: italic;
+  color: var(--volt);
+  font-variation-settings: "opsz" 144, "wght" 400, "SOFT" 0;
+}
+.onboarding__deck {
+  font-family: var(--ff-body);
+  font-size: 1rem;
+  color: var(--ink-muted);
+  line-height: 1.5;
+  margin-bottom: var(--space-4);
+}
+.onboarding__deck strong { color: var(--ink); font-style: italic; }
+.onboarding__steps {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--space-4);
+  display: flex; flex-direction: column;
+  gap: var(--space-4);
+}
+.onboarding__steps li {
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--line);
+}
+.onboarding__steps li:first-child { border-top: 0; padding-top: 0; }
+.onboarding__num {
+  font-family: var(--ff-display);
+  font-variation-settings: "opsz" 144, "wght" 320, "SOFT" 50;
+  font-size: 2.2rem;
+  line-height: 1;
+  color: var(--volt);
+  letter-spacing: -0.04em;
+  font-style: italic;
+}
+.onboarding__steps h3 {
+  font-family: var(--ff-display);
+  font-variation-settings: "opsz" 36, "wght" 500;
+  font-style: italic;
+  font-size: 1.1rem;
+  margin: 0 0 4px;
+  color: var(--ink);
+}
+.onboarding__steps p {
+  font-family: var(--ff-body);
+  font-size: 0.92rem;
+  color: var(--ink-muted);
+  line-height: 1.5;
+  margin: 0;
+}
+.onboarding__steps strong { color: var(--ink); font-style: italic; }
+.onboarding__steps em { font-style: italic; color: var(--cyan); }
+.onboarding__cta {
+  display: flex; gap: var(--space-2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+.onboarding__steps kbd { margin: 0 2px; }
+
+/* Confirm modal */
+.confirm__body {
+  font-family: var(--ff-body);
+  font-size: 0.95rem;
+  color: var(--ink);
+  line-height: 1.5;
+  margin: 0 0 var(--space-4);
+}
+.confirm__body strong {
+  color: var(--amber);
+  font-weight: 500;
+  font-style: italic;
+}
+.confirm__cta {
+  display: flex; gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+/* CTA pequeno (em modais) */
+.cta--sm {
+  padding: 10px 18px;
+  font-size: 1rem;
+}
+
 .shortcuts {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -1736,7 +1971,37 @@ dialog::backdrop {
   .tray { grid-template-columns: 1fr auto; padding-bottom: env(safe-area-inset-bottom, 12px); }
   .tray__chips { display: none; }
   .results__head { flex-wrap: wrap; gap: 12px; }
+
+  /* Drawer fullscreen em mobile (era 520px fixos) */
+  .drawer {
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    border-left: 0;
+  }
+  /* Modais ocupam mais espaço em mobile */
+  .modal, .modal--lg {
+    width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+    max-height: calc(100dvh - 16px);
+    overflow-y: auto;
+  }
+  .palette {
+    top: 8px;
+    width: calc(100vw - 16px);
+  }
+  /* Onboarding steps em mobile: número menor inline */
+  .onboarding__steps li {
+    grid-template-columns: 36px 1fr;
+    gap: var(--space-2);
+  }
+  .onboarding__num { font-size: 1.6rem; }
+  /* Skip link em mobile não fica preso ao left:16px */
+  .skip-link { left: 12px; right: 12px; text-align: center; }
 }
+
+/* Modais respeitam scroll em telas pequenas */
+.modal__body { max-height: 70vh; overflow-y: auto; }
 
 /* ============================================================================
    PREFERS-REDUCED-MOTION

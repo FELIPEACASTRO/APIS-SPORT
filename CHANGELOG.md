@@ -3,6 +3,65 @@
 Formato: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versionamento: [SemVer](https://semver.org/).
 
+## [3.2.0] — 2026-05-14 — UX/UI hardening completo
+
+15 problemas de UX identificados e resolvidos em auditoria sistemática.
+
+### Added — Persistência & Deep linking
+- **`src/storage.js`** novo módulo cliente:
+  - URL state sync (`?tab=session&q=pinnacle&mode=real&hide_empty=1`) — refresh preserva tudo.
+  - localStorage para **seleção persistida** entre sessões (até 302 ids).
+  - localStorage para **histórico de resultados** (últimos 50, com trim automático).
+  - localStorage para preferências (onboarding visto).
+- Filtros, tab e modo agora são compartilháveis via URL.
+
+### Added — Onboarding & ajuda
+- **Modal de onboarding** mostrado automaticamente na primeira visita.
+- Botão `?` no topbar abre o tour novamente a qualquer momento.
+- 3 passos didáticos (Descobrir → Selecionar → Executar) com atalhos integrados.
+
+### Added — Confirmação & Cancelamento
+- **Confirm modal** antes de batch real > 20 chamadas (consome cota explícita).
+- **Botão Cancelar** aparece durante execução (`AbortController`).
+- **Undo via Ctrl+Z** para ações destrutivas (Limpar seleção, Limpar resultados).
+
+### Added — Loading & estados visuais
+- **Skeleton placeholders** no boot do catálogo (substitui "carregando…" cru).
+- **Spinner inline** no meta de loading.
+- **Progress bar indeterminate** no CTA Executar durante execução.
+
+### Added — Devtools
+- **Copy as cURL** no drawer da API (gera comando pronto com placeholder de chave).
+- **Endpoint datalist** com 12 sufixos comuns (`/v1/sports`, `/getMLBTeams`, etc.) — autocomplete nativo no browser.
+
+### Added — Mobile & A11y
+- **Drawer fullscreen** em mobile (era 520px fixos).
+- **Modal scroll** em telas pequenas.
+- **Skip link** "Pular para o conteúdo" como primeiro focável (`#workspace`).
+- **Tray expand** funciona corretamente em mobile (volta para Catálogo).
+
+### Added — Resiliência
+- **Boot error screen** quando init falha — substitui interface por card com:
+  - Mensagem clara
+  - Stack trace expansível (`<details>`)
+  - **Botão "Tentar novamente"** que recarrega a página
+
+### Changed
+- `clearSelection` agora oferece undo via Ctrl+Z (5s window).
+- `clearResults` idem.
+- Onboarding é mostrado 400ms após boot (não bloqueia render inicial).
+- `Esc` fecha onboarding e confirm além dos outros overlays.
+
+### Version
+- 3.1.0 → 3.2.0
+
+### Validação
+- npm run lint: 0 errors
+- npm test: 53/53
+- npm run qa: 3/3 · 302/302
+- npm run smoke: 29/29
+- npm run integration: 47/47
+
 ## [3.1.0] — 2026-05-14 — Dashboard analítico + Tipagem + ADRs
 
 ### Added
