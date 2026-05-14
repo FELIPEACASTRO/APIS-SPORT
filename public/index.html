@@ -274,11 +274,16 @@
             A chave fica em memória do browser. Saiu da aba, sumiu.
           </p>
 
-          <label class="field" id="key-field" hidden>
-            <span class="field__label">RapidAPI Key</span>
-            <input id="f-key" type="password" autocomplete="off" spellcheck="false"
-                   placeholder="cole a chave do seu painel rapidapi.com" />
-          </label>
+          <!-- Form wrapper para suprimir o aviso do Chrome
+               "Password field is not contained in a form" -->
+          <form id="key-form" onsubmit="return false;" autocomplete="off">
+            <label class="field" id="key-field" hidden>
+              <span class="field__label">RapidAPI Key</span>
+              <input id="f-key" type="password" name="rapidapi_key"
+                     autocomplete="off" spellcheck="false"
+                     placeholder="cole a chave do seu painel rapidapi.com" />
+            </label>
+          </form>
 
           <label class="field">
             <span class="field__label">Endpoint (sufixo do host)</span>
