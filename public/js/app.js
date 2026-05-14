@@ -24,9 +24,33 @@ import { toastOk, toastInfo, toastWarn, toastError } from './toast.js';
 import { PRESETS } from './presets.js';
 import { readUrl, syncUrl, persistedSelection, persistedHistory, prefs } from './storage.js';
 
+// ── Captura global de erros para diagnóstico ───────────────────────────────
+function reportError(err, source) {
+  console.error(`[${source}]`, err);
+  try {
+    fetch('/api/log-error', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        message: err?.message || String(err),
+        stack: err?.stack || '',
+        source: source || 'unknown',
+      }),
+      keepalive: true,
+    }).catch(() => {});
+  } catch { /* nada */ }
+}
+window.addEventListener('error', (e) => reportError(e.error || e.message, 'window.error'));
+window.addEventListener('unhandledrejection', (e) => reportError(e.reason, 'unhandledrejection'));
+
 // ── Boot ────────────────────────────────────────────────────────────────────
+// Wire dos botões do boot error JÁ no carregamento — assim funcionam
+// mesmo se o init() falhar antes de chegar lá.
+wireBootError();
+
 init().catch((err) => {
   console.error(err);
+  reportError(err, 'init');
   renderStatus({ state: 'error', label: 'falha' });
   showBootError(err);
 });
@@ -149,9 +173,24 @@ function showBootError(err) {
   $('#boot-error-stack').textContent = err.stack || String(err);
   el.hidden = false;
 }
-function hideBootError() { $('#boot-error').hidden = true; }
+function hideBootError() {
+  const el = $('#boot-error');
+  if (el) el.hidden = true;
+}
 function wireBootError() {
-  $('#boot-error-retry').addEventListener('click', () => location.reload());
+  const retry = $('#boot-error-retry');
+  const reset = $('#boot-error-reset');
+  const clearStorage = $('#boot-error-clear-storage');
+  if (retry) retry.addEventListener('click', () => location.reload());
+  if (reset) reset.addEventListener('click', () => {
+    try { localStorage.clear(); } catch {}
+    location.replace(location.pathname);
+  });
+  if (clearStorage) clearStorage.addEventListener('click', () => {
+    try { localStorage.clear(); } catch {}
+    alert('localStorage limpo. Recarregando...');
+    location.reload();
+  });
 }
 
 // ── Tabs ────────────────────────────────────────────────────────────────────

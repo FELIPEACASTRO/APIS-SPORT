@@ -168,18 +168,30 @@ app.get('/api/catalog', (req, res) => {
   items.sort(makeSorter(sortBy));
   if (limit && limit > 0) items = items.slice(0, limit);
 
-  // ETag baseado nos parâmetros + total (catálogo é estático em runtime)
-  const etag = '"' + createHash('sha1')
+  // ETag fraco (W/) sinaliza ao cliente que a resposta pode revalidar mas
+  // SEMPRE inclui o body — evita o cenário onde cache do browser está
+  // inconsistente e fetch() falha em 304 sem body.
+  const etag = 'W/"' + createHash('sha1')
     .update(JSON.stringify({ filters, limit, sortBy, total: items.length }))
     .digest('hex')
     .slice(0, 16) + '"';
   res.setHeader('ETag', etag);
-  res.setHeader('Cache-Control', 'public, max-age=60');
-  if (req.headers['if-none-match'] === etag) {
-    return res.status(304).end();
-  }
+  res.setHeader('Cache-Control', 'no-cache');
 
   res.json({ total: items.length, filters, items });
+});
+
+// Endpoint para receber erros JS do cliente (debug)
+app.post('/api/log-error', (req, res) => {
+  const { message, stack, source } = req.body || {};
+  log.error({
+    msg: 'client error',
+    client_message: message,
+    client_source: source,
+    client_stack: stack,
+    req_id: req.id,
+  });
+  res.status(204).end();
 });
 
 app.get('/api/catalog/stats', (_req, res) => {
