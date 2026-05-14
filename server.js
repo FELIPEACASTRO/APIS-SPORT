@@ -90,7 +90,24 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json({ limit: '64kb' }));
-app.use(express.static(path.join(__dirname, 'public'), { etag: true, maxAge: '1h' }));
+
+// Estáticos: cache curto + ETag para revalidação.
+// Em dev (NODE_ENV !== 'production'), maxAge=0 força revalidação a cada
+// request — evita JS/CSS desatualizado quando código muda. ETag permite
+// 304 Not Modified barato quando nada mudou.
+const STATIC_MAX_AGE = config.NODE_ENV === 'production' ? '1h' : 0;
+app.use(express.static(path.join(__dirname, 'public'), {
+  etag: true,
+  maxAge: STATIC_MAX_AGE,
+  setHeaders: (res, filepath) => {
+    // JS modules: sempre revalidar (evita ES module graph quebrado em dev)
+    if (filepath.endsWith('.js')) {
+      res.setHeader('Cache-Control', config.NODE_ENV === 'production'
+        ? 'public, max-age=3600, must-revalidate'
+        : 'no-cache, must-revalidate');
+    }
+  },
+}));
 
 // ── Health / Probes ─────────────────────────────────────────────────────────
 app.get('/api/live', (_req, res) => {
