@@ -93,21 +93,27 @@ app.use(express.json({ limit: '64kb' }));
 
 // Estáticos: cache curto + ETag para revalidação.
 // Em dev (NODE_ENV !== 'production'), maxAge=0 força revalidação a cada
-// request — evita JS/CSS desatualizado quando código muda. ETag permite
-// 304 Not Modified barato quando nada mudou.
-const STATIC_MAX_AGE = config.NODE_ENV === 'production' ? '1h' : 0;
+// request — evita JS/CSS/HTML desatualizado quando código muda.
+const isDev = config.NODE_ENV !== 'production';
+const STATIC_MAX_AGE = isDev ? 0 : '1h';
 app.use(express.static(path.join(__dirname, 'public'), {
   etag: true,
   maxAge: STATIC_MAX_AGE,
+  index: isDev ? false : 'index.html', // em dev, NÃO serve index.html
+                                        //  → cai no nosso middleware c/ no-cache
   setHeaders: (res, filepath) => {
-    // JS modules: sempre revalidar (evita ES module graph quebrado em dev)
-    if (filepath.endsWith('.js')) {
-      res.setHeader('Cache-Control', config.NODE_ENV === 'production'
-        ? 'public, max-age=3600, must-revalidate'
-        : 'no-cache, must-revalidate');
+    // JS, CSS, HTML: sempre revalidar em dev
+    if (isDev && /\.(js|css|html)$/.test(filepath)) {
+      res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+    } else if (!isDev && filepath.endsWith('.js')) {
+      res.setHeader('Cache-Control', 'public, max-age=3600, must-revalidate');
     }
   },
 }));
+
+// Em dev, desabilita ETag automático do Express para evitar 304 em
+// /api/catalog/stats etc. (cliente sempre pega body fresco).
+if (isDev) app.set('etag', false);
 
 // ── Health / Probes ─────────────────────────────────────────────────────────
 app.get('/api/live', (_req, res) => {
@@ -168,16 +174,11 @@ app.get('/api/catalog', (req, res) => {
   items.sort(makeSorter(sortBy));
   if (limit && limit > 0) items = items.slice(0, limit);
 
-  // ETag fraco (W/) sinaliza ao cliente que a resposta pode revalidar mas
-  // SEMPRE inclui o body — evita o cenário onde cache do browser está
-  // inconsistente e fetch() falha em 304 sem body.
-  const etag = 'W/"' + createHash('sha1')
-    .update(JSON.stringify({ filters, limit, sortBy, total: items.length }))
-    .digest('hex')
-    .slice(0, 16) + '"';
-  res.setHeader('ETag', etag);
-  res.setHeader('Cache-Control', 'no-cache');
-
+  // IMPORTANTE: NÃO setar ETag aqui — quando o browser tem cache
+  // parcialmente inconsistente (ETag salvo mas body perdido), o
+  // fetch() recebe 304 SEM BODY e o r.ok === false faz o init falhar.
+  // Cache-Control: no-store garante que sempre vem body fresco.
+  res.setHeader('Cache-Control', 'no-store');
   res.json({ total: items.length, filters, items });
 });
 
@@ -265,6 +266,10 @@ app.post('/api/invoke/batch', invokeLimiter, validateBody(invokeBatchSchema), as
 // ── SPA fallback (GET fora de /api/*) ───────────────────────────────────────
 app.use((req, res, next) => {
   if (req.method !== 'GET' || req.path.startsWith('/api/')) return next();
+  // Em dev, não cachear HTML — assim mudanças no index.html aparecem na hora
+  if (config.NODE_ENV !== 'production') {
+    res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+  }
   res.type('html').send(INDEX_HTML);
 });
 
