@@ -118,62 +118,76 @@ async function init() {
   }
 
   // 3) Sincronizar inputs com state hidratado
-  syncFilterInputs();
-  syncOtherInputs();
+  safe('syncFilterInputs', syncFilterInputs);
+  safe('syncOtherInputs',  syncOtherInputs);
 
-  // 4) Wire-up
-  bindRender({
+  // 4) Wire-up — cada um isolado, falha de um não derruba os outros
+  safe('bindRender', () => bindRender({
     onToggle: toggleSelected,
     onOpenDrawer: openDrawer,
-  });
-  wireTabs();
-  wireFilters();
-  wirePresets();
-  wireSession();
-  wireTray();
-  wireOverlays();
-  wireBootError();
+  }));
+  safe('wireTabs',     wireTabs);
+  safe('wireFilters',  wireFilters);
+  safe('wirePresets',  wirePresets);
+  safe('wireSession',  wireSession);
+  safe('wireTray',     wireTray);
+  safe('wireOverlays', wireOverlays);
 
-  // 3) Palette (precisa existir antes dos atalhos que referenciam .open())
-  const paletteCtrl = initPalette({
-    getState: () => state.get(),
-    onPick: (entry, mods) => onPalettePick(entry, mods),
+  // 5) Palette
+  let paletteCtrl = { open() {}, close() {} };
+  safe('initPalette', () => {
+    paletteCtrl = initPalette({
+      getState: () => state.get(),
+      onPick: (entry, mods) => onPalettePick(entry, mods),
+    });
   });
 
-  // 4) Atalhos globais
-  initKeyboard({
+  // 6) Atalhos globais
+  safe('initKeyboard', () => initKeyboard({
     openPalette:    () => paletteCtrl.open(),
-    focusSearch:    () => $('#f-query').focus(),
+    focusSearch:    () => $('#f-query')?.focus(),
     switchTab:      (tab) => setTab(tab),
     execute:        () => executeSelected(),
     selectAllVisible: () => selectAllVisible(),
     clearSelection: () => clearSelection(),
-    openShortcuts:  () => $('#shortcuts').showModal(),
+    openShortcuts:  () => $('#shortcuts')?.showModal(),
     closeAll:       () => closeAllOverlays(),
-  });
+  }));
 
-  // 5) State → render reativo + persistência
+  // 7) State → render reativo + persistência (cada operação em isolado)
   state.on((s) => {
-    renderCounters(s);
-    renderCatalog(s);
-    renderTray(s);
-    renderActiveFilters(s, removeFilter);
-    renderModeFields(s);
-    renderResults(s);
-    // Persist seleção e histórico
-    persistedSelection.save(s.selected);
-    persistedHistory.save(s.results);
-    // Sync URL
-    syncUrl({ tab: s.tab, filters: s.filters, mode: s.mode, hideEmpty: s.hideEmpty });
+    safe('renderCounters',      () => renderCounters(s));
+    safe('renderCatalog',       () => renderCatalog(s));
+    safe('renderTray',          () => renderTray(s));
+    safe('renderActiveFilters', () => renderActiveFilters(s, removeFilter));
+    safe('renderModeFields',    () => renderModeFields(s));
+    safe('renderResults',       () => renderResults(s));
+    safe('persistSelection',    () => persistedSelection.save(s.selected));
+    safe('persistHistory',      () => persistedHistory.save(s.results));
+    safe('syncUrl', () => syncUrl({
+      tab: s.tab, filters: s.filters, mode: s.mode, hideEmpty: s.hideEmpty,
+    }));
   });
 
   // Render inicial
-  renderTab(state.get().tab);
-  if (state.get().tab === 'dashboard') refreshDashboard();
+  safe('renderTab', () => renderTab(state.get().tab));
+  safe('refreshDashboard', () => {
+    if (state.get().tab === 'dashboard') refreshDashboard();
+  });
 
   // Onboarding na primeira visita
-  if (!prefs.hasSeenOnboarding()) {
-    setTimeout(() => $('#onboarding').showModal(), 400);
+  safe('onboarding', () => {
+    if (!prefs.hasSeenOnboarding()) {
+      setTimeout(() => $('#onboarding')?.showModal(), 400);
+    }
+  });
+}
+
+// Wrapper que loga erros sem propagar — mantém o init "à prova de balas".
+function safe(label, fn) {
+  try { fn(); }
+  catch (err) {
+    console.warn(`[safe:${label}]`, err);
   }
 }
 
