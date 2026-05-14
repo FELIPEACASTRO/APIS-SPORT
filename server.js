@@ -48,7 +48,17 @@ import { notFound, errorHandler } from './src/middleware/error-handler.js';
 const __filename = url.fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const APP_VERSION = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8')).version;
-const INDEX_HTML = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
+
+// Cache buster por boot — em dev, força browser a re-baixar JS/CSS
+// quando servidor reinicia. Contorna o module cache do JS engine que
+// persiste mesmo após Cache-Control: no-store.
+const BOOT_ID = Date.now().toString(36);
+let INDEX_HTML = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
+if (process.env.NODE_ENV !== 'production') {
+  INDEX_HTML = INDEX_HTML
+    .replace('./styles.css', `./styles.css?v=${BOOT_ID}`)
+    .replace('./js/app.js', `./js/app.js?v=${BOOT_ID}`);
+}
 
 const BUILD_INFO = {
   version: APP_VERSION,
@@ -102,9 +112,11 @@ app.use(express.static(path.join(__dirname, 'public'), {
   index: isDev ? false : 'index.html', // em dev, NÃO serve index.html
                                         //  → cai no nosso middleware c/ no-cache
   setHeaders: (res, filepath) => {
-    // JS, CSS, HTML: sempre revalidar em dev
+    // Em dev: no-store em JS/CSS/HTML — força browser a buscar SEMPRE
+    // do servidor (não usa cache, mesmo válido). Em prod, cache normal.
     if (isDev && /\.(js|css|html)$/.test(filepath)) {
-      res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+      res.setHeader('Cache-Control', 'no-store, must-revalidate');
+      res.removeHeader('ETag');
     } else if (!isDev && filepath.endsWith('.js')) {
       res.setHeader('Cache-Control', 'public, max-age=3600, must-revalidate');
     }
