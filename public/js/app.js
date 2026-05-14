@@ -44,9 +44,6 @@ window.addEventListener('error', (e) => reportError(e.error || e.message, 'windo
 window.addEventListener('unhandledrejection', (e) => reportError(e.reason, 'unhandledrejection'));
 
 // ── Boot ────────────────────────────────────────────────────────────────────
-// Wire dos botões do boot error JÁ no carregamento (caso necessário).
-wireBootError();
-
 init().catch((err) => {
   console.error('[init crashed]', err);
   reportError(err, 'init');
@@ -55,7 +52,6 @@ init().catch((err) => {
 });
 
 async function init() {
-  hideBootError();
   renderStatus({ state: 'pending', label: 'conectando…' });
 
   // 1) Hidratar URL + localStorage ANTES do fetch
@@ -181,32 +177,8 @@ async function init() {
   }
 }
 
-// ── Boot error screen ──────────────────────────────────────────────────────
-function showBootError(err) {
-  const el = $('#boot-error');
-  $('#boot-error-msg').textContent = err.message || 'Falha desconhecida.';
-  $('#boot-error-stack').textContent = err.stack || String(err);
-  el.hidden = false;
-}
-function hideBootError() {
-  const el = $('#boot-error');
-  if (el) el.hidden = true;
-}
-function wireBootError() {
-  const retry = $('#boot-error-retry');
-  const reset = $('#boot-error-reset');
-  const clearStorage = $('#boot-error-clear-storage');
-  if (retry) retry.addEventListener('click', () => location.reload());
-  if (reset) reset.addEventListener('click', () => {
-    try { localStorage.clear(); } catch {}
-    location.replace(location.pathname);
-  });
-  if (clearStorage) clearStorage.addEventListener('click', () => {
-    try { localStorage.clear(); } catch {}
-    alert('localStorage limpo. Recarregando...');
-    location.reload();
-  });
-}
+// (showBootError / hideBootError / wireBootError removidos — UI nunca
+//  é bloqueada por overlay fullscreen; falhas viram toast discreto)
 
 // ── Tabs ────────────────────────────────────────────────────────────────────
 function wireTabs() {

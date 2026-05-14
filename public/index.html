@@ -545,33 +545,7 @@
       </div>
     </dialog>
 
-    <!-- Boot error screen (substitui interface quando init falha) -->
-    <div id="boot-error" class="boot-error" hidden role="alert">
-      <div class="boot-error__card">
-        <span class="boot-error__icon">⚠</span>
-        <h2>Não foi possível conectar</h2>
-        <p id="boot-error-msg">Falha ao buscar o catálogo. Verifique se o servidor está rodando.</p>
-
-        <div class="boot-error__hint">
-          <strong>Solução comum:</strong> cache do browser desatualizado.
-          <ol>
-            <li>Pressione <kbd class="kbd kbd--key">Ctrl</kbd>+<kbd class="kbd kbd--key">Shift</kbd>+<kbd class="kbd kbd--key">R</kbd> (Windows/Linux) ou <kbd class="kbd kbd--key">Cmd</kbd>+<kbd class="kbd kbd--key">Shift</kbd>+<kbd class="kbd kbd--key">R</kbd> (macOS)</li>
-            <li>Se persistir, <button id="boot-error-clear-storage" class="btn-inline">limpe o localStorage</button> e recarregue</li>
-            <li>Verifique o console do browser (<kbd class="kbd kbd--key">F12</kbd>) para detalhes</li>
-          </ol>
-        </div>
-
-        <details>
-          <summary>Detalhes técnicos (stack trace)</summary>
-          <pre id="boot-error-stack"></pre>
-        </details>
-
-        <div class="boot-error__actions">
-          <button id="boot-error-retry" class="cta">Tentar novamente</button>
-          <button id="boot-error-reset" class="action action--ghost">Limpar tudo &amp; recarregar</button>
-        </div>
-      </div>
-    </div>
+    <!-- (Boot error fullscreen removido — falhas agora aparecem como toast discreto) -->
 
     <!-- Toast container -->
     <div class="toasts" id="toasts" aria-live="polite" aria-atomic="true"></div>
