@@ -116,6 +116,7 @@ function wireFilters() {
   const pri = $('#f-pricing');
   const pop = $('#f-minpop');
   const sort= $('#f-sort');
+  const hideEmpty = $('#f-hide-empty');
 
   const apply = debounce(async () => {
     const next = {
@@ -134,12 +135,19 @@ function wireFilters() {
   pri.addEventListener('input', apply);
   pop.addEventListener('input', apply);
   sort.addEventListener('input', apply);
+  hideEmpty.addEventListener('change', () => {
+    state.set({ hideEmpty: hideEmpty.checked });
+    refilter();
+  });
 }
 
 async function refilter() {
-  const f = state.get().filters;
+  const s = state.get();
   try {
-    const { items } = await fetchCatalog(f);
+    let { items } = await fetchCatalog(s.filters);
+    if (s.hideEmpty) {
+      items = items.filter((api) => api.popularity > 0);
+    }
     state.set({ filtered: items });
   } catch (err) {
     toastError(err.message);

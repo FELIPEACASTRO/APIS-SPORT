@@ -480,6 +480,66 @@ input::placeholder { color: var(--ink-dim); font-style: italic; }
   font-size: 1.1rem;
 }
 
+/* Toggle switch (esconder APIs sem telemetria) */
+.toggle {
+  display: inline-flex; align-items: center; gap: 12px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--rad);
+  cursor: pointer;
+  width: max-content;
+  max-width: 100%;
+  transition: border-color var(--dur);
+}
+.toggle:hover { border-color: var(--line-2); }
+.toggle input { position: absolute; opacity: 0; pointer-events: none; }
+.toggle__track {
+  width: 36px; height: 20px;
+  background: var(--surface-3);
+  border: 1px solid var(--line-2);
+  border-radius: var(--rad-full);
+  position: relative;
+  transition: background var(--dur), border-color var(--dur);
+  flex-shrink: 0;
+}
+.toggle__track::after {
+  content: '';
+  position: absolute; top: 2px; left: 2px;
+  width: 14px; height: 14px;
+  background: var(--ink-muted);
+  border-radius: 50%;
+  transition: transform var(--dur) var(--ease), background var(--dur);
+}
+.toggle:has(input:checked) .toggle__track {
+  background: rgba(200,255,61,0.15);
+  border-color: var(--volt);
+}
+.toggle:has(input:checked) .toggle__track::after {
+  transform: translateX(16px);
+  background: var(--volt);
+}
+.toggle__label {
+  font-family: var(--ff-mono);
+  font-size: var(--fs-mono-sm);
+  color: var(--ink);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.toggle__label small {
+  font-family: var(--ff-body);
+  font-size: 0.72rem;
+  font-style: italic;
+  color: var(--ink-muted);
+}
+
+/* Badge "sem dados" no card do catálogo */
+.tag--empty {
+  color: var(--ink-dim);
+  border-color: var(--line-2);
+  background: transparent;
+  font-style: italic;
+}
+
 /* Active filters chips */
 .active-filters {
   display: flex; gap: 6px; flex-wrap: wrap;

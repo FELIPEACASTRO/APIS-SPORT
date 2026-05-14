@@ -69,6 +69,17 @@ export function renderCatalog(state) {
     fill(node, 'latency_ms', api.latency_ms);
     fill(node, 'success_rate_pct', api.success_rate_pct);
 
+    // Badge "sem dados" para APIs com popularity=0 (cerca de 35% do catálogo
+    // — fidelidade ao dossiê fonte, telemetria não disponível no RapidAPI).
+    if (api.popularity === 0) {
+      const meta = node.querySelector('.catalog-item__meta');
+      const badge = document.createElement('span');
+      badge.className = 'tag tag--empty';
+      badge.textContent = 'sem telemetria';
+      badge.title = 'Dossiê fonte não registra popularidade/latência/sucesso para esta API';
+      meta.appendChild(badge);
+    }
+
     const cb = node.querySelector('.catalog-item__cb');
     cb.checked = state.selected.has(api.id);
     cb.addEventListener('change', () => _renderCallbacks.onToggle?.(api.id));

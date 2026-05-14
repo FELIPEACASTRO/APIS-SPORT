@@ -55,11 +55,17 @@ Para usar modo real, ou cole sua chave na UI (campo `RapidAPI Key`) ou exporte `
 ```bash
 npm start                        # produção
 npm run dev                      # com --watch
-npm test                         # node --test — 26 testes
-npm run qa                       # QA report em terminal (3 checks)
+npm test                         # node --test — 32 testes
+npm run qa                       # QA report em terminal (3 checks · 302/302 mock)
 npm run qa -- --real             # acrescenta amostra real (precisa RAPIDAPI_KEY)
 npm run qa:json                  # mesmo QA em JSON (CI-friendly)
+npm run smoke                    # smoke test end-to-end (19 cenários)
+npm run smoke:json               # smoke em JSON
+npm run homolog                  # pipeline COMPLETO de homologação: test + qa + smoke
 ```
+
+Para **homologação do cliente** veja [HOMOLOGACAO.md](HOMOLOGACAO.md).
+Para **release notes** veja [CHANGELOG.md](CHANGELOG.md).
 
 ### Variáveis de ambiente
 

@@ -24,6 +24,7 @@ export const state = new Store({
   stats: null,
   selected: new Set(),
   filters: { query: '', subcategory: '', pricing: '', minPopularity: 0, sort: 'popularity' },
+  hideEmpty: false,        // esconder APIs sem telemetria (popularity === 0)
   activeFilters: [],
   mode: 'mock',            // 'mock' | 'real'
   rapidApiKey: '',

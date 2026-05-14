@@ -1,6 +1,6 @@
 {
   "name": "apis-sport",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "type": "module",
   "main": "server.js",
   "scripts": {
@@ -8,7 +8,10 @@
     "dev": "node --watch server.js",
     "test": "node --test tests/*.test.mjs",
     "qa": "node scripts/qa-report.mjs",
-    "qa:json": "node scripts/qa-report.mjs --json"
+    "qa:json": "node scripts/qa-report.mjs --json",
+    "smoke": "node scripts/smoke-test.mjs",
+    "smoke:json": "node scripts/smoke-test.mjs --json",
+    "homolog": "npm test && npm run qa && npm run smoke && node -e \"console.log('\\n══ HOMOLOGAÇÃO COMPLETA ══\\nVersão:',require('./package.json').version,'\\nNode:',process.version,'\\nDate:',new Date().toISOString(),'\\n')\""
   },
   "engines": {
     "node": ">=20"

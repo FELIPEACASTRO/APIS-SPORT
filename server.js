@@ -26,22 +26,61 @@ const SERVER_KEY = process.env.RAPIDAPI_KEY || null;
 const INDEX_HTML = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
 
 app.disable('x-powered-by');
+
+// Security headers — equivalentes ao helmet básico, sem dependência externa.
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-site');
+  next();
+});
+
+// Logging mínimo (timestamp + method + path + status + duration) — facilita
+// auditoria durante homologação. Stdout estruturado, sem dep externa.
+app.use((req, res, next) => {
+  const t0 = Date.now();
+  res.on('finish', () => {
+    const ms = Date.now() - t0;
+    const line = `${new Date().toISOString()} ${req.method.padEnd(5)} ${String(res.statusCode)} ${ms.toString().padStart(4)}ms ${req.originalUrl}`;
+    if (res.statusCode >= 500) console.error(line);
+    else if (process.env.LOG_LEVEL !== 'silent') console.log(line);
+  });
+  next();
+});
+
 app.use(express.json({ limit: '64kb' }));
 app.use(express.static(path.join(__dirname, 'public'), { etag: true, maxAge: '1h' }));
 
 // ---------------------------------------------------------------------------
-// Health
+// Health & Version
 // ---------------------------------------------------------------------------
+const APP_VERSION = '2.1.0';
+const BUILD_INFO = {
+  version: APP_VERSION,
+  catalog_source: 'RapidAPI dossiê 11/05/2026',
+  catalog_total: 302,
+  node_version: process.version,
+  platform: process.platform,
+};
+
 app.get('/api/health', (_req, res) => {
   const { meta, apis } = loadCatalog();
   res.json({
     status: 'OK',
-    version: '2.0.0',
+    version: APP_VERSION,
     catalog_total: apis.length,
     catalog_generated_at: meta.generated_at,
     server_has_rapidapi_key: Boolean(SERVER_KEY),
+    uptime_s: Math.round(process.uptime()),
     timestamp: new Date().toISOString(),
   });
+});
+
+app.get('/api/version', (_req, res) => {
+  res.json(BUILD_INFO);
 });
 
 // ---------------------------------------------------------------------------
