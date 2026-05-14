@@ -1,3 +1,4 @@
+// @ts-check
 // public/js/palette.js
 // Command palette ⌘K — busca APIs + ações rápidas.
 

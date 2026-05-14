@@ -22,28 +22,70 @@ Guia operacional para o time de plantão.
 
 Single-process Node.js (Express 5), stateless. Catálogo em memória (302 APIs ~ 200 kB).
 
+```mermaid
+flowchart LR
+    Browser[Browser / Client]
+    LB[Load Balancer<br/>Nginx · CDN]
+    subgraph App[APIS // SPORT · Node 22]
+        MW[Pipeline de Middleware<br/>req-id · sec · cors · log · ratelimit · valid · err]
+        Routes{Roteamento}
+        Probes[Probes K8s<br/>/live · /ready · /health · /metrics]
+        Catalog[Catalog Cache<br/>302 APIs em memória]
+        Invoker[Invoker<br/>mock · proxy real]
+        SPA[Estáticos<br/>SPA fallback]
+    end
+    RapidAPI[RapidAPI<br/>302 hosts *.p.rapidapi.com]
+    Prom[Prometheus<br/>scrape /metrics]
+    Logs[Logs estruturados<br/>ELK · Datadog · Loki]
+
+    Browser -->|HTTPS| LB
+    LB -->|HTTP| MW
+    MW --> Routes
+    Routes --> Probes
+    Routes --> Catalog
+    Routes --> Invoker
+    Routes --> SPA
+    Invoker -->|HTTPS modo real| RapidAPI
+    Probes -.scrape.-> Prom
+    MW -.JSON.-> Logs
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  Browser / Client                                                │
-└───────────────┬─────────────────────────────────────────────────┘
-                │ HTTPS
-                ▼
-┌──────────────────────────────────────────────────────────────────┐
-│  Load Balancer / Reverse Proxy (Nginx, Cloudfront, etc.)        │
-└───────────────┬──────────────────────────────────────────────────┘
-                │ HTTP
-                ▼
-┌──────────────────────────────────────────────────────────────────┐
-│  APIS // SPORT (Node 22, Express 5)                              │
-│  ├─ middleware pipeline  (request-id, log, security, cors,       │
-│  │                        rate-limit, validation, error-handler) │
-│  ├─ catalog cache (302 APIs em memória)                          │
-│  ├─ invoker (mock | proxy → RapidAPI)                            │
-│  └─ probes (/live /ready /health /metrics)                       │
-└───────────────┬──────────────────────────────────────────────────┘
-                │ HTTPS (modo real)
-                ▼
-                RapidAPI (302 hosts *.p.rapidapi.com)
+
+### Fluxo de uma requisição POST /api/invoke
+
+```mermaid
+sequenceDiagram
+    participant C as Cliente
+    participant LB as LoadBalancer
+    participant S as Servidor
+    participant MW as Middleware Pipeline
+    participant I as Invoker
+    participant R as RapidAPI
+
+    C->>LB: POST /api/invoke<br/>body: {apiId, mode}
+    LB->>S: encaminha
+    S->>MW: request-id, security, cors, log, rate-limit
+    MW->>MW: validateBody(invokeSchema)
+    alt validation falha
+        MW-->>C: 400 + details + request_id
+    end
+    MW->>I: invokeApi(req)
+    alt mode === "mock"
+        I->>I: mockResponseFor(api)
+        I-->>MW: {ok:true, data:{_mock:true,...}}
+    else mode === "real"
+        I->>R: fetch(host, headers RapidAPI)
+        alt timeout
+            I-->>MW: {ok:false, error:"TIMEOUT"}
+        else status >= 400
+            R-->>I: 401/403/429/etc
+            I-->>MW: {ok:false, status, error}
+        else 200
+            R-->>I: payload
+            I-->>MW: {ok:true, data}
+        end
+    end
+    MW->>MW: increment metrics
+    MW-->>C: {ok, status, duration_ms, data, request_id}
 ```
 
 ---

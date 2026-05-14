@@ -25,6 +25,7 @@
 //   *                           SPA fallback (serve public/index.html)
 
 import express from 'express';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import url from 'node:url';
@@ -149,6 +150,17 @@ app.get('/api/catalog', (req, res) => {
   let items = filterCatalog(filters);
   items.sort(makeSorter(sortBy));
   if (limit && limit > 0) items = items.slice(0, limit);
+
+  // ETag baseado nos parâmetros + total (catálogo é estático em runtime)
+  const etag = '"' + createHash('sha1')
+    .update(JSON.stringify({ filters, limit, sortBy, total: items.length }))
+    .digest('hex')
+    .slice(0, 16) + '"';
+  res.setHeader('ETag', etag);
+  res.setHeader('Cache-Control', 'public, max-age=60');
+  if (req.headers['if-none-match'] === etag) {
+    return res.status(304).end();
+  }
 
   res.json({ total: items.length, filters, items });
 });

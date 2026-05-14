@@ -1,3 +1,4 @@
+// @ts-check
 // public/js/toast.js
 // Toast notifications discretas, auto-dismiss em 4s.
 

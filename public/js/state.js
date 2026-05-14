@@ -1,3 +1,4 @@
+// @ts-check
 // public/js/state.js
 // Store reativo simples. Sem framework — emit/subscribe nativo.
 

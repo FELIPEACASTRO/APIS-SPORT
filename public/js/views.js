@@ -1,3 +1,4 @@
+// @ts-check
 // public/js/views.js
 // Render do catálogo, da sessão e dos resultados. Sem React — DOM nativo + templates.
 
@@ -13,12 +14,14 @@ export function bindRender(callbacks) {
 // ── Tabs ────────────────────────────────────────────────────────────────────
 export function renderTab(tab) {
   document.body.dataset.tab = tab;
-  $$('#tab-catalog, #tab-session').forEach((b) => {
+  $$('#tab-catalog, #tab-session, #tab-dashboard').forEach((b) => {
     const isActive = b.dataset.tab === tab;
     b.setAttribute('aria-selected', String(isActive));
   });
   $('#view-catalog').hidden = tab !== 'catalog';
   $('#view-session').hidden = tab !== 'session';
+  const dash = $('#view-dashboard');
+  if (dash) dash.hidden = tab !== 'dashboard';
 }
 
 // ── Counters ────────────────────────────────────────────────────────────────

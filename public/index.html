@@ -39,6 +39,11 @@
           Sessão
           <span class="tab__count" id="tab-count-session" aria-hidden="true">0</span>
         </button>
+        <button class="tab" role="tab" id="tab-dashboard" aria-controls="view-dashboard" aria-selected="false" data-tab="dashboard">
+          <span class="tab__dot" aria-hidden="true"></span>
+          Dashboard
+          <span class="tab__count tab__count--icon" aria-hidden="true">▦</span>
+        </button>
       </nav>
 
       <div class="topbar__actions">
@@ -287,6 +292,88 @@
             e clique <strong>Executar</strong>.
           </p>
         </section>
+      </section>
+
+      <!-- ====== VIEW: DASHBOARD ===================================== -->
+      <section
+        class="view view--dashboard"
+        id="view-dashboard"
+        role="tabpanel"
+        aria-labelledby="tab-dashboard"
+        hidden
+      >
+        <header class="view__head">
+          <div>
+            <p class="view__eyebrow">Insights · 302 APIs</p>
+            <h1 class="view__title">Dashboard analítico</h1>
+            <p class="view__deck">
+              Distribuição, ranking e correlações do catálogo. Tudo renderizado
+              em SVG nativo a partir do endpoint <code>/api/catalog/stats</code>.
+            </p>
+          </div>
+        </header>
+
+        <!-- Headline stats -->
+        <div class="kpis" id="kpis">
+          <div class="kpi"><b id="kpi-total">—</b><small>total</small></div>
+          <div class="kpi kpi--volt"><b id="kpi-freemium">—</b><small>freemium</small></div>
+          <div class="kpi kpi--cyan"><b id="kpi-providers">—</b><small>provedores</small></div>
+          <div class="kpi kpi--amber"><b id="kpi-empty">—</b><small>sem telemetria</small></div>
+          <div class="kpi"><b id="kpi-lat-p50">—<small style="margin-left:4px">ms</small></b><small>latência p50</small></div>
+          <div class="kpi"><b id="kpi-lat-p95">—<small style="margin-left:4px">ms</small></b><small>latência p95</small></div>
+          <div class="kpi"><b id="kpi-succ-mean">—<small style="margin-left:4px">%</small></b><small>sucesso médio</small></div>
+        </div>
+
+        <!-- Grid de charts -->
+        <div class="charts">
+          <article class="chart chart--span-2">
+            <header class="chart__head">
+              <h2>Distribuição por subcategoria</h2>
+              <span class="chart__hint">contagem · ordenado</span>
+            </header>
+            <div id="chart-subcategory" class="chart__body"></div>
+          </article>
+
+          <article class="chart">
+            <header class="chart__head">
+              <h2>Preço</h2>
+              <span class="chart__hint">share</span>
+            </header>
+            <div id="chart-pricing" class="chart__body"></div>
+          </article>
+
+          <article class="chart chart--span-2">
+            <header class="chart__head">
+              <h2>Histograma de popularidade</h2>
+              <span class="chart__hint">bins de 1 ponto · contagem</span>
+            </header>
+            <div id="chart-popularity" class="chart__body"></div>
+          </article>
+
+          <article class="chart">
+            <header class="chart__head">
+              <h2>Top provedores</h2>
+              <span class="chart__hint">por # de APIs</span>
+            </header>
+            <div id="chart-providers" class="chart__body"></div>
+          </article>
+
+          <article class="chart chart--span-3">
+            <header class="chart__head">
+              <h2>Latência × Taxa de sucesso</h2>
+              <span class="chart__hint">cada bolha = 1 API · tamanho = popularidade</span>
+            </header>
+            <div id="chart-scatter" class="chart__body"></div>
+          </article>
+
+          <article class="chart chart--span-3">
+            <header class="chart__head">
+              <h2>Top 10 por popularidade</h2>
+              <span class="chart__hint">leaderboard ao vivo</span>
+            </header>
+            <ol id="chart-leaderboard" class="leaderboard"></ol>
+          </article>
+        </div>
       </section>
     </main>
 

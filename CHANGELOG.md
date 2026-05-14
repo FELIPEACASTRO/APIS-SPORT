@@ -3,6 +3,45 @@
 Formato: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versionamento: [SemVer](https://semver.org/).
 
+## [3.1.0] — 2026-05-14 — Dashboard analítico + Tipagem + ADRs
+
+### Added
+- **Tab `Dashboard`** com data-viz SVG nativa (zero deps):
+  - 7 KPIs (total, freemium, provedores, sem telemetria, latência p50/p95, sucesso médio)
+  - Bar chart de APIs por subcategoria (ordenado, animado)
+  - Donut chart de share por preço
+  - Histograma de popularidade (10 bins, com tooltips)
+  - Bar chart de top 10 provedores
+  - Scatter plot latência × taxa de sucesso (com p95 marcado)
+  - Leaderboard top 10 por popularidade com sparklines
+- **Backend stats expandido** (`/api/catalog/stats`):
+  - `top_by_popularity` (10 entries)
+  - `popularity_histogram` (10 bins de 1 ponto)
+  - `top_providers` (até 10 ordenado por count)
+  - `latency` percentis (p50, p95, p99, max, mean)
+  - `success_rate` (p50, mean, with_100, with_zero)
+  - `no_telemetry` + `no_telemetry_pct`
+  - `scatter` data points (filtrados, capados em 10s)
+- **ETag + Cache-Control** em `/api/catalog` — 304 Not Modified em hits subsequentes
+- **Tipagem `// @ts-check` em todos os 10 módulos JS frontend** — editor valida em tempo real via JSDoc + types
+- **10 ADRs** em `docs/adr/` documentando decisões arquiteturais:
+  - 001 Zero runtime deps
+  - 002 Mock como feature de produto
+  - 003 Sem build step (vanilla ES modules)
+  - 004 Rate limit in-memory
+  - 005 Catalog cache read-only
+  - 006 SPA fallback via middleware (Express 5)
+  - 007 JSDoc em vez de TypeScript
+  - 008 Rate limiter custom
+  - 009 Mock determinístico por subcategoria
+  - 010 Modos mock+real coexistindo
+- **Diagrama Mermaid** em `OPERATIONS.md` (arquitetura geral + sequence diagram do POST /api/invoke)
+- **Atalho de teclado `3`** → tab Dashboard
+- **Tests** para o stats expandido (+6 cenários → 53 total)
+
+### Changed
+- Versão 3.0.0 → 3.1.0
+
 ## [3.0.0] — 2026-05-14 — **Production-Grade Release**
 
 ### Added (production hardening)

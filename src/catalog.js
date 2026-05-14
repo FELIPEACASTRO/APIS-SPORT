@@ -71,10 +71,81 @@ function buildStats(apis) {
     byProvider[api.provider || '(sem provedor)'] =
       (byProvider[api.provider || '(sem provedor)'] || 0) + 1;
   }
+
+  // Top 10 provedores por contagem de APIs
+  const topProviders = Object.entries(byProvider)
+    .filter(([k]) => k !== '(sem provedor)')
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([name, count]) => ({ name, count }));
+
+  // Histograma de popularidade em 10 bins (0–10)
+  const popularityHistogram = Array.from({ length: 10 }, (_, i) => ({
+    bin: `${i}-${i + 1}`,
+    range: [i, i + 1],
+    count: 0,
+  }));
+  for (const api of apis) {
+    const idx = Math.min(Math.floor(api.popularity), 9);
+    popularityHistogram[idx].count++;
+  }
+
+  // Top 10 APIs por popularidade
+  const topByPopularity = [...apis]
+    .sort((a, b) => b.popularity - a.popularity || a.id - b.id)
+    .slice(0, 10)
+    .map((a) => ({
+      id: a.id,
+      name: a.name,
+      subcategory: a.subcategory,
+      pricing: a.pricing,
+      popularity: a.popularity,
+      latency_ms: a.latency_ms,
+      success_rate_pct: a.success_rate_pct,
+    }));
+
+  // Percentis de latency e success_rate
+  const latencies = apis.map((a) => a.latency_ms).sort((a, b) => a - b);
+  const successes = apis.map((a) => a.success_rate_pct).sort((a, b) => a - b);
+  const percentile = (arr, p) => arr[Math.floor((arr.length - 1) * p)];
+
+  // Scatter data para latency × success (com pop como tamanho)
+  const scatter = apis
+    .filter((a) => a.latency_ms > 0 && a.success_rate_pct > 0)
+    .map((a) => ({
+      id: a.id,
+      name: a.name,
+      x: Math.min(a.latency_ms, 10_000), // capa em 10s para visualização
+      y: a.success_rate_pct,
+      r: a.popularity,
+    }));
+
+  // % de APIs sem telemetria (popularity===0)
+  const noTelemetry = apis.filter((a) => a.popularity === 0).length;
+
   return {
     bySubcategory,
     byPricing,
     providers_unique: Object.keys(byProvider).length,
+    top_providers: topProviders,
+    top_by_popularity: topByPopularity,
+    popularity_histogram: popularityHistogram,
+    latency: {
+      p50: percentile(latencies, 0.5),
+      p95: percentile(latencies, 0.95),
+      p99: percentile(latencies, 0.99),
+      max: latencies[latencies.length - 1],
+      mean: Math.round(latencies.reduce((s, n) => s + n, 0) / latencies.length),
+    },
+    success_rate: {
+      p50: percentile(successes, 0.5),
+      mean: +(successes.reduce((s, n) => s + n, 0) / successes.length).toFixed(1),
+      with_100: apis.filter((a) => a.success_rate_pct === 100).length,
+      with_zero: apis.filter((a) => a.success_rate_pct === 0).length,
+    },
+    no_telemetry: noTelemetry,
+    no_telemetry_pct: +((noTelemetry / apis.length) * 100).toFixed(1),
+    scatter,
   };
 }
 

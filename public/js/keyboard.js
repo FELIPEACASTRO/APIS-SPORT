@@ -1,3 +1,4 @@
+// @ts-check
 // public/js/keyboard.js
 // Atalhos globais. Considera meta key cross-platform (Cmd no mac, Ctrl no resto).
 
@@ -29,10 +30,11 @@ export function initKeyboard(handlers) {
       return;
     }
 
-    // 1 / 2 trocam de tab (fora de inputs)
-    if ((e.key === '1' || e.key === '2') && !tagBlocksTyping(document.activeElement)) {
+    // 1 / 2 / 3 trocam de tab (fora de inputs)
+    if (['1', '2', '3'].includes(e.key) && !tagBlocksTyping(document.activeElement)) {
       e.preventDefault();
-      handlers.switchTab?.(e.key === '1' ? 'catalog' : 'session');
+      const map = { '1': 'catalog', '2': 'session', '3': 'dashboard' };
+      handlers.switchTab?.(map[e.key]);
       return;
     }
 

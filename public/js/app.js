@@ -1,3 +1,4 @@
+// @ts-check
 // public/js/app.js
 // Entry point — orquestra estado, serviços, atalhos e overlays.
 
@@ -16,6 +17,7 @@ import {
   renderDrawer,
   renderStatus,
 } from './views.js';
+import { renderDashboard } from './dashboard.js';
 import { initPalette } from './palette.js';
 import { initKeyboard } from './keyboard.js';
 import { toastOk, toastInfo, toastWarn, toastError } from './toast.js';
@@ -100,13 +102,26 @@ async function init() {
 
 // ── Tabs ────────────────────────────────────────────────────────────────────
 function wireTabs() {
-  $$('#tab-catalog, #tab-session').forEach((b) => {
+  $$('#tab-catalog, #tab-session, #tab-dashboard').forEach((b) => {
     b.addEventListener('click', () => setTab(b.dataset.tab));
   });
 }
 function setTab(tab) {
   state.set({ tab });
   renderTab(tab);
+  if (tab === 'dashboard') refreshDashboard();
+}
+
+let dashboardLoaded = false;
+async function refreshDashboard() {
+  if (dashboardLoaded) return; // catálogo é estático em runtime, 1 fetch basta
+  try {
+    const stats = await fetchStats();
+    renderDashboard(stats);
+    dashboardLoaded = true;
+  } catch (err) {
+    toastError('Falha ao carregar stats: ' + err.message);
+  }
 }
 
 // ── Filters ─────────────────────────────────────────────────────────────────

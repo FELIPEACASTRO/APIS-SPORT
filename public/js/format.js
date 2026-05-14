@@ -1,3 +1,4 @@
+// @ts-check
 // public/js/format.js
 // Funções puras de formatação.
 

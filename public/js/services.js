@@ -1,3 +1,4 @@
+// @ts-check
 // public/js/services.js
 // Chamadas ao backend interno. SRP: rede.
 

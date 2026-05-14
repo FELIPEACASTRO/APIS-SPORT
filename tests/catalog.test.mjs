@@ -98,3 +98,52 @@ test('cache funciona: chamadas múltiplas retornam mesma referência', () => {
   const b = loadCatalog();
   assert.equal(a, b, 'cache deveria devolver o mesmo objeto');
 });
+
+// ── Stats expandido (v3.1) ────────────────────────────────────────────────
+test('stats inclui top_by_popularity com 10 entries', () => {
+  const { stats } = loadCatalog();
+  assert.ok(Array.isArray(stats.top_by_popularity));
+  assert.equal(stats.top_by_popularity.length, 10);
+  // ordenado desc por popularidade
+  for (let i = 1; i < stats.top_by_popularity.length; i++) {
+    assert.ok(stats.top_by_popularity[i].popularity <= stats.top_by_popularity[i - 1].popularity);
+  }
+});
+
+test('stats inclui popularity_histogram com 10 bins', () => {
+  const { stats } = loadCatalog();
+  assert.equal(stats.popularity_histogram.length, 10);
+  const sum = stats.popularity_histogram.reduce((s, b) => s + b.count, 0);
+  assert.equal(sum, 302, 'soma do histogram deveria ser 302');
+});
+
+test('stats inclui percentis de latency e success', () => {
+  const { stats } = loadCatalog();
+  assert.ok(stats.latency.p50 <= stats.latency.p95);
+  assert.ok(stats.latency.p95 <= stats.latency.p99);
+  assert.ok(stats.latency.p99 <= stats.latency.max);
+  assert.ok(stats.success_rate.mean >= 0 && stats.success_rate.mean <= 100);
+});
+
+test('stats inclui top_providers (até 10)', () => {
+  const { stats } = loadCatalog();
+  assert.ok(Array.isArray(stats.top_providers));
+  assert.ok(stats.top_providers.length > 0);
+  assert.ok(stats.top_providers.length <= 10);
+});
+
+test('stats inclui no_telemetry e percent', () => {
+  const { stats } = loadCatalog();
+  assert.ok(stats.no_telemetry > 0);
+  assert.ok(stats.no_telemetry_pct > 0 && stats.no_telemetry_pct < 100);
+});
+
+test('stats inclui scatter para latency × success', () => {
+  const { stats } = loadCatalog();
+  assert.ok(Array.isArray(stats.scatter));
+  for (const p of stats.scatter) {
+    assert.ok(typeof p.x === 'number');
+    assert.ok(typeof p.y === 'number');
+    assert.ok(typeof p.r === 'number');
+  }
+});
