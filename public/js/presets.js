@@ -1,3 +1,4 @@
+// @ts-check
 // public/js/presets.js
 // Definições dos presets clicáveis (chips). Cada preset descreve filtros e/ou
 // um conjunto de ids a serem pré-selecionados.

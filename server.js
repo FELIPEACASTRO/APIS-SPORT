@@ -1,52 +1,238 @@
-// server.js — Express API gateway + estática SPA.
+// server.js — APIS // SPORT — production-grade entry point.
+//
+// Stack:
+//   Express 5  +  middleware customizados (zero deps extras)
+//   - request-id     atribui UUID por request (honra X-Request-ID)
+//   - http-logger    logs estruturados + métricas Prometheus
+//   - security       CSP, COOP, CORP, HSTS, X-Frame-Options, etc.
+//   - cors           configurável via CORS_ORIGIN
+//   - rate-limit     in-memory sliding window (global + /invoke)
+//   - validation     schemas explícitos por endpoint
+//   - error-handler  404 + 500 estruturados
+//   - graceful shutdown (SIGTERM/SIGINT, drain de conexões)
+//
 // Endpoints:
-//   GET  /api/health
-//   GET  /api/catalog                 (com query: q, subcategory, pricing, minPopularity, limit)
-//   GET  /api/catalog/stats
-//   GET  /api/catalog/:id
-//   POST /api/invoke                  body: { apiId, endpoint?, mode?, query?, rapidApiKey? }
-//   POST /api/invoke/batch            body: { items: [...], mode?, rapidApiKey? }
+//   GET  /api/health            health-check completo (com uptime, métricas)
+//   GET  /api/live              liveness probe (sempre 200)
+//   GET  /api/ready             readiness probe (200 quando catalog carregado)
+//   GET  /api/metrics           Prometheus text exposition
+//   GET  /api/version           build info
+//   GET  /api/catalog           lista filtrada (q, subcategory, pricing, minPopularity, sort, limit)
+//   GET  /api/catalog/stats     agregados
+//   GET  /api/catalog/:id       uma API
+//   POST /api/invoke            body validado: { apiId, endpoint?, mode?, query?, rapidApiKey? }
+//   POST /api/invoke/batch      body validado: { items: [...], mode?, rapidApiKey? }
+//   *                           SPA fallback (serve public/index.html)
 
 import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import url from 'node:url';
 
+import { config, logConfigSummary } from './src/config.js';
+import { log } from './src/logger.js';
+import { inc, snapshot, toPrometheus } from './src/metrics.js';
+import { registerShutdownHandlers, isShuttingDown } from './src/shutdown.js';
 import { loadCatalog, filterCatalog, getApiById } from './src/catalog.js';
 import { invokeApi } from './src/invoker.js';
 
+import { requestId } from './src/middleware/request-id.js';
+import { httpLogger } from './src/middleware/http-logger.js';
+import { securityHeaders } from './src/middleware/security.js';
+import { cors } from './src/middleware/cors.js';
+import { globalLimiter, invokeLimiter } from './src/middleware/rate-limit.js';
+import { validateBody, invokeSchema, invokeBatchSchema } from './src/middleware/validation.js';
+import { notFound, errorHandler } from './src/middleware/error-handler.js';
+
 const __filename = url.fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const APP_VERSION = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8')).version;
+
+// Cache buster por boot — em dev, força browser a re-baixar JS/CSS
+// quando servidor reinicia. Contorna o module cache do JS engine que
+// persiste mesmo após Cache-Control: no-store.
+const BOOT_ID = Date.now().toString(36);
+let INDEX_HTML = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
+if (process.env.NODE_ENV !== 'production') {
+  INDEX_HTML = INDEX_HTML
+    .replace('./styles.css', `./styles.css?v=${BOOT_ID}`)
+    .replace('./js/app.js', `./js/app.js?v=${BOOT_ID}`);
+}
+
+const BUILD_INFO = {
+  version: APP_VERSION,
+  catalog_source: 'RapidAPI dossiê 11/05/2026',
+  catalog_total: 302,
+  node_version: process.version,
+  platform: process.platform,
+  started_at: new Date().toISOString(),
+};
+
+// ── Carrega e valida catálogo no boot ───────────────────────────────────────
+let catalogReady = false;
+try {
+  const { apis } = loadCatalog();
+  catalogReady = true;
+  log.info({ msg: 'catalog loaded', total: apis.length });
+} catch (err) {
+  log.error({ msg: 'failed to load catalog', error: err.message });
+  process.exit(1);
+}
+
 const app = express();
-const PORT = Number(process.env.PORT || 3000);
-const SERVER_KEY = process.env.RAPIDAPI_KEY || null;
-
-// Lemos o index.html uma vez no boot — evita custos repetidos e
-// contorna problema do res.sendFile com paths Windows no Express 5.
-const INDEX_HTML = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
-
 app.disable('x-powered-by');
-app.use(express.json({ limit: '64kb' }));
-app.use(express.static(path.join(__dirname, 'public'), { etag: true, maxAge: '1h' }));
+if (config.TRUST_PROXY) app.set('trust proxy', true);
 
-// ---------------------------------------------------------------------------
-// Health
-// ---------------------------------------------------------------------------
+// ── Pipeline de middleware ──────────────────────────────────────────────────
+app.use(requestId());
+app.use(securityHeaders());
+app.use(cors());
+app.use(httpLogger());
+app.use(globalLimiter);
+
+// Bloqueia novas requests durante shutdown (mantém /live/ready respondendo)
+app.use((req, res, next) => {
+  if (!isShuttingDown()) return next();
+  if (req.path === '/api/live' || req.path === '/api/ready') return next();
+  res.setHeader('Connection', 'close');
+  res.status(503).json({ error: 'shutting down', request_id: req.id });
+});
+
+app.use(express.json({ limit: '64kb' }));
+
+// Estáticos: cache curto + ETag para revalidação.
+// Em dev (NODE_ENV !== 'production'), maxAge=0 força revalidação a cada
+// request — evita JS/CSS/HTML desatualizado quando código muda.
+const isDev = config.NODE_ENV !== 'production';
+const STATIC_MAX_AGE = isDev ? 0 : '1h';
+app.use(express.static(path.join(__dirname, 'public'), {
+  etag: true,
+  maxAge: STATIC_MAX_AGE,
+  index: isDev ? false : 'index.html', // em dev, NÃO serve index.html
+                                        //  → cai no nosso middleware c/ no-cache
+  setHeaders: (res, filepath) => {
+    // Em dev: no-store em JS/CSS/HTML — força browser a buscar SEMPRE
+    // do servidor (não usa cache, mesmo válido). Em prod, cache normal.
+    if (isDev && /\.(js|css|html)$/.test(filepath)) {
+      res.setHeader('Cache-Control', 'no-store, must-revalidate');
+      res.removeHeader('ETag');
+    } else if (!isDev && filepath.endsWith('.js')) {
+      res.setHeader('Cache-Control', 'public, max-age=3600, must-revalidate');
+    }
+  },
+}));
+
+// Em dev, desabilita ETag automático do Express para evitar 304 em
+// /api/catalog/stats etc. (cliente sempre pega body fresco).
+if (isDev) app.set('etag', false);
+
+
+function bearerOrHeader(req, headerName) {
+  const direct = req.headers[headerName.toLowerCase()];
+  if (typeof direct === 'string' && direct) return direct;
+  const authorization = req.headers.authorization;
+  if (typeof authorization === 'string' && authorization.startsWith('Bearer ')) {
+    return authorization.slice('Bearer '.length).trim();
+  }
+  return '';
+}
+
+function requireMetricsToken(req, res, next) {
+  if (!config.METRICS_TOKEN) return next();
+  const token = bearerOrHeader(req, 'X-Metrics-Token');
+  if (token !== config.METRICS_TOKEN) {
+    return res.status(token ? 403 : 401).json({ error: 'metrics não autorizado', request_id: req.id });
+  }
+  next();
+}
+
+function hasChargeableRealInvoke(body) {
+  if (body.mode === 'mock') return false;
+  const hasKey = Boolean(body.rapidApiKey || config.RAPIDAPI_KEY);
+  if (body.mode === 'real') return hasKey;
+  return hasKey;
+}
+
+function requireRealInvokeAuth(req, res, next) {
+  const body = req.validBody || {};
+  const items = Array.isArray(body.items) ? body.items : [body];
+  const usesClientKey = Boolean(body.rapidApiKey || items.some((item) => item.rapidApiKey));
+  if (usesClientKey && !config.ALLOW_CLIENT_RAPIDAPI_KEY) {
+    return res.status(403).json({
+      error: 'rapidApiKey no cliente está desabilitada neste ambiente',
+      request_id: req.id,
+    });
+  }
+
+  const hasChargeableRealCall = hasChargeableRealInvoke(body) || items.some((item) =>
+    hasChargeableRealInvoke({ ...item, rapidApiKey: item.rapidApiKey || body.rapidApiKey }),
+  );
+  if (!hasChargeableRealCall || !config.REQUIRE_REAL_AUTH) return next();
+
+  if (!config.REAL_INVOKE_TOKEN) {
+    return res.status(503).json({
+      error: 'modo real indisponível: REAL_INVOKE_TOKEN não configurado',
+      request_id: req.id,
+    });
+  }
+
+  const token = bearerOrHeader(req, 'X-Invoke-Token');
+  if (token !== config.REAL_INVOKE_TOKEN) {
+    return res.status(token ? 403 : 401).json({
+      error: 'modo real não autorizado',
+      request_id: req.id,
+    });
+  }
+  next();
+}
+
+function truncate(value, max) {
+  return String(value || '').slice(0, max);
+}
+
+// ── Health / Probes ─────────────────────────────────────────────────────────
+app.get('/api/live', (_req, res) => {
+  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
+app.get('/api/ready', (_req, res) => {
+  if (catalogReady && !isShuttingDown()) {
+    return res.json({ status: 'OK', catalog_ready: true });
+  }
+  res.status(503).json({ status: 'NOT_READY', catalog_ready: catalogReady });
+});
+
 app.get('/api/health', (_req, res) => {
   const { meta, apis } = loadCatalog();
   res.json({
     status: 'OK',
-    version: '2.0.0',
+    version: APP_VERSION,
     catalog_total: apis.length,
     catalog_generated_at: meta.generated_at,
-    server_has_rapidapi_key: Boolean(SERVER_KEY),
+    server_has_rapidapi_key: Boolean(config.RAPIDAPI_KEY),
+    uptime_s: Math.round(process.uptime()),
+    memory: {
+      rss_mb: Math.round(process.memoryUsage().rss / 1024 / 1024),
+      heap_used_mb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+    },
     timestamp: new Date().toISOString(),
   });
 });
 
-// ---------------------------------------------------------------------------
-// Catalog
-// ---------------------------------------------------------------------------
+app.get('/api/version', (_req, res) => {
+  res.json(BUILD_INFO);
+});
+
+app.get('/api/metrics', requireMetricsToken, (_req, res) => {
+  res.set('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+  res.send(toPrometheus());
+});
+
+app.get('/api/metrics/json', requireMetricsToken, (_req, res) => {
+  res.json(snapshot());
+});
+
+// ── Catalog ─────────────────────────────────────────────────────────────────
 app.get('/api/catalog', (req, res) => {
   const filters = {
     query: req.query.q,
@@ -56,18 +242,38 @@ app.get('/api/catalog', (req, res) => {
       ? Number(req.query.minPopularity)
       : undefined,
   };
-  const limit = req.query.limit ? Number(req.query.limit) : undefined;
+  const limit = req.query.limit ? Math.min(Number(req.query.limit), 500) : undefined;
   const sortBy = req.query.sort || 'popularity';
 
   let items = filterCatalog(filters);
   items.sort(makeSorter(sortBy));
   if (limit && limit > 0) items = items.slice(0, limit);
 
-  res.json({
-    total: items.length,
-    filters,
-    items,
+  // IMPORTANTE: NÃO setar ETag aqui — quando o browser tem cache
+  // parcialmente inconsistente (ETag salvo mas body perdido), o
+  // fetch() recebe 304 SEM BODY e o r.ok === false faz o init falhar.
+  // Cache-Control: no-store garante que sempre vem body fresco.
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ total: items.length, filters, items });
+});
+
+// Endpoint para receber erros JS do cliente (debug)
+app.post('/api/log-error', (req, res) => {
+  const body = (req.body && typeof req.body === 'object') ? req.body : {};
+  const message = truncate(body.message, 500);
+  const source = truncate(body.source, 120);
+  const stack = truncate(body.stack, 3000);
+  if (!message && !stack) {
+    return res.status(400).json({ error: 'erro do cliente vazio', request_id: req.id });
+  }
+  log.error({
+    msg: 'client error',
+    client_message: message,
+    client_source: source,
+    client_stack: stack,
+    req_id: req.id,
   });
+  res.status(204).end();
 });
 
 app.get('/api/catalog/stats', (_req, res) => {
@@ -80,107 +286,113 @@ app.get('/api/catalog/:id', (req, res) => {
     const api = getApiById(req.params.id);
     res.json({ api });
   } catch (err) {
-    res.status(404).json({ error: err.message });
+    res.status(404).json({ error: err.message, request_id: req.id });
   }
 });
 
-// ---------------------------------------------------------------------------
-// Invoke
-// ---------------------------------------------------------------------------
-app.post('/api/invoke', async (req, res) => {
-  const { apiId, endpoint, mode, query, rapidApiKey } = req.body || {};
-  if (!apiId) {
-    return res.status(400).json({ error: 'apiId é obrigatório' });
-  }
+// ── Invoke ──────────────────────────────────────────────────────────────────
+app.post('/api/invoke', invokeLimiter, validateBody(invokeSchema), requireRealInvokeAuth, async (req, res) => {
+  const { apiId, endpoint, mode, query, rapidApiKey } = req.validBody;
   const result = await invokeApi({
-    apiId: Number(apiId),
+    apiId,
     endpoint,
     mode,
     query,
-    rapidApiKey: rapidApiKey || SERVER_KEY,
+    rapidApiKey: rapidApiKey || config.RAPIDAPI_KEY,
   });
-  // Propaga status do RapidAPI (401/403/429/etc) ao invés de mascarar como 502.
-  // Para erros de rede locais (result.status === 0), retornamos 502.
+  inc('invoke_total', { mode: result.mode, ok: String(result.ok) });
   const httpStatus =
     result.ok ? 200 :
     result.status >= 400 ? result.status :
     502;
-  res.status(httpStatus).json(result);
+  res.status(httpStatus).json({ ...result, request_id: req.id });
 });
 
-app.post('/api/invoke/batch', async (req, res) => {
-  const { items, mode, rapidApiKey } = req.body || {};
-  if (!Array.isArray(items) || items.length === 0) {
-    return res.status(400).json({ error: 'items[] é obrigatório' });
+app.post('/api/invoke/batch', invokeLimiter, validateBody(invokeBatchSchema), requireRealInvokeAuth, async (req, res) => {
+  const { items, mode, rapidApiKey } = req.validBody;
+  const key = rapidApiKey || config.RAPIDAPI_KEY;
+
+  // Para evitar sobrecarga do upstream em modo real, limitamos a 10 calls
+  // simultâneas. Mock é local — concorrência irrelevante.
+  const CONCURRENCY = 10;
+  const results = new Array(items.length);
+  for (let i = 0; i < items.length; i += CONCURRENCY) {
+    const chunk = items.slice(i, i + CONCURRENCY);
+    const chunkResults = await Promise.all(
+      chunk.map((item) =>
+        invokeApi({
+          apiId: item.apiId,
+          endpoint: item.endpoint,
+          mode: item.mode || mode,
+          query: item.query,
+          rapidApiKey: item.rapidApiKey || key,
+        }),
+      ),
+    );
+    for (let j = 0; j < chunkResults.length; j++) results[i + j] = chunkResults[j];
   }
-  if (items.length > 50) {
-    return res.status(413).json({ error: 'máximo 50 chamadas por batch' });
-  }
-  const key = rapidApiKey || SERVER_KEY;
-  const results = await Promise.all(
-    items.map((item) =>
-      invokeApi({
-        apiId: Number(item.apiId),
-        endpoint: item.endpoint,
-        mode: item.mode || mode,
-        query: item.query,
-        rapidApiKey: key,
-      }),
-    ),
-  );
-  const allOk = results.every((r) => r.ok);
-  res.status(allOk ? 200 : 207).json({
+
+  for (const r of results) inc('invoke_total', { mode: r.mode, ok: String(r.ok) });
+  const succeeded = results.filter((r) => r.ok).length;
+  const failed = results.length - succeeded;
+  res.status(failed === 0 ? 200 : 207).json({
     total: results.length,
-    succeeded: results.filter((r) => r.ok).length,
-    failed: results.filter((r) => !r.ok).length,
+    succeeded,
+    failed,
+    request_id: req.id,
     results,
   });
 });
 
-// ---------------------------------------------------------------------------
-// Fallback SPA — middleware final para qualquer GET fora de /api/*
-// (Express 5 não aceita mais "*" cru em route paths)
-// Usamos res.type+send para evitar problemas do sendFile com paths Windows.
-// ---------------------------------------------------------------------------
+// ── SPA fallback (GET fora de /api/*) ───────────────────────────────────────
 app.use((req, res, next) => {
   if (req.method !== 'GET' || req.path.startsWith('/api/')) return next();
+  // Em dev, NÃO armazena cache do HTML — força browser a buscar sempre fresco
+  if (config.NODE_ENV !== 'production') {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+  }
   res.type('html').send(INDEX_HTML);
 });
 
-// ---------------------------------------------------------------------------
-// Boot
-// ---------------------------------------------------------------------------
+// ── 404 e error handler globais ─────────────────────────────────────────────
+app.use(notFound());
+app.use(errorHandler());
+
+// ── Sorter ──────────────────────────────────────────────────────────────────
 function makeSorter(sortBy) {
   switch (sortBy) {
-    case 'name':
-      return (a, b) => a.name.localeCompare(b.name);
-    case 'latency':
-      return (a, b) => (a.latency_ms || 1e9) - (b.latency_ms || 1e9);
-    case 'success':
-      return (a, b) => b.success_rate_pct - a.success_rate_pct;
+    case 'name':       return (a, b) => a.name.localeCompare(b.name);
+    case 'latency':    return (a, b) => (a.latency_ms || 1e9) - (b.latency_ms || 1e9);
+    case 'success':    return (a, b) => b.success_rate_pct - a.success_rate_pct;
     case 'popularity':
-    default:
-      return (a, b) => b.popularity - a.popularity || a.id - b.id;
+    default:           return (a, b) => b.popularity - a.popularity || a.id - b.id;
   }
 }
 
-// Boot apenas quando este arquivo é o entry point (node server.js).
-// Ao ser importado (tests, scripts), NÃO abre porta — evita conflito
-// e race no listen.
+// ── Boot ────────────────────────────────────────────────────────────────────
 const isEntryPoint = (() => {
-  try {
-    const argvPath = path.resolve(process.argv[1] || '');
-    return argvPath === __filename;
-  } catch { return false; }
+  try { return path.resolve(process.argv[1] || '') === __filename; }
+  catch { return false; }
 })();
 
 if (isEntryPoint) {
-  app.listen(PORT, () => {
-    const { apis } = loadCatalog();
-    console.log(`▸ APIs SPORT — terminal editorial iniciado`);
-    console.log(`  http://localhost:${PORT}`);
-    console.log(`  catálogo: ${apis.length} APIs carregadas`);
-    console.log(`  RAPIDAPI_KEY: ${SERVER_KEY ? 'detectada (modo real disponível)' : 'ausente (mock automático)'}`);
+  logConfigSummary(log);
+  const server = app.listen(config.PORT, config.HOST, () => {
+    log.info({
+      msg: 'server listening',
+      url: `http://${config.HOST}:${config.PORT}`,
+      version: APP_VERSION,
+      pid: process.pid,
+    });
+  });
+  // Keep-alive / headers timeout — evita socket leak atrás de LB
+  server.keepAliveTimeout = 65_000;
+  server.headersTimeout = 66_000;
+
+  registerShutdownHandlers(server, log, async () => {
+    log.info({ msg: 'graceful shutdown started' });
   });
 }
 

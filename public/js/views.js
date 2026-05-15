@@ -1,7 +1,8 @@
+// @ts-check
 // public/js/views.js
 // Render do catálogo, da sessão e dos resultados. Sem React — DOM nativo + templates.
 
-import { $, $$, pad3, prettyJson, toTreeHTML, escape, downloadJson, copyToClipboard } from './format.js';
+import { $, $$, pad3, prettyJson, toTreeHTML, escape, copyToClipboard } from './format.js';
 import { toastOk, toastInfo } from './toast.js';
 
 let _renderCallbacks = {};
@@ -13,12 +14,14 @@ export function bindRender(callbacks) {
 // ── Tabs ────────────────────────────────────────────────────────────────────
 export function renderTab(tab) {
   document.body.dataset.tab = tab;
-  $$('#tab-catalog, #tab-session').forEach((b) => {
+  $$('#tab-catalog, #tab-session, #tab-dashboard').forEach((b) => {
     const isActive = b.dataset.tab === tab;
     b.setAttribute('aria-selected', String(isActive));
   });
   $('#view-catalog').hidden = tab !== 'catalog';
   $('#view-session').hidden = tab !== 'session';
+  const dash = $('#view-dashboard');
+  if (dash) dash.hidden = tab !== 'dashboard';
 }
 
 // ── Counters ────────────────────────────────────────────────────────────────
@@ -68,6 +71,17 @@ export function renderCatalog(state) {
     fill(node, 'popularity', api.popularity);
     fill(node, 'latency_ms', api.latency_ms);
     fill(node, 'success_rate_pct', api.success_rate_pct);
+
+    // Badge "sem dados" para APIs com popularity=0 (cerca de 35% do catálogo
+    // — fidelidade ao dossiê fonte, telemetria não disponível no RapidAPI).
+    if (api.popularity === 0) {
+      const meta = node.querySelector('.catalog-item__meta');
+      const badge = document.createElement('span');
+      badge.className = 'tag tag--empty';
+      badge.textContent = 'sem telemetria';
+      badge.title = 'Dossiê fonte não registra popularidade/latência/sucesso para esta API';
+      meta.appendChild(badge);
+    }
 
     const cb = node.querySelector('.catalog-item__cb');
     cb.checked = state.selected.has(api.id);
@@ -239,6 +253,7 @@ export function renderDrawer(api) {
     </p>
     <div class="drawer__cta">
       <button class="action" data-action="copy-host">Copiar host</button>
+      <button class="action" data-action="copy-curl">Copiar como cURL</button>
       <button class="action" data-action="select">Selecionar</button>
       <a class="action action--ghost" href="${escape(api.rapidapi_url)}" target="_blank" rel="noopener">
         Abrir no RapidAPI ↗
@@ -248,6 +263,14 @@ export function renderDrawer(api) {
   $('#drawer-body [data-action="copy-host"]').addEventListener('click', async () => {
     const ok = await copyToClipboard(api.rapidapi_host);
     if (ok) toastOk(`Host de "${api.name}" copiado.`);
+  });
+  $('#drawer-body [data-action="copy-curl"]').addEventListener('click', async () => {
+    const curl = `curl --request GET \\
+  --url 'https://${api.rapidapi_host}/' \\
+  --header 'X-RapidAPI-Key: SUA_CHAVE_RAPIDAPI' \\
+  --header 'X-RapidAPI-Host: ${api.rapidapi_host}'`;
+    const ok = await copyToClipboard(curl);
+    if (ok) toastOk('Comando cURL copiado (substitua SUA_CHAVE_RAPIDAPI).');
   });
   $('#drawer-body [data-action="select"]').addEventListener('click', () => {
     _renderCallbacks.onToggle?.(api.id);

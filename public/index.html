@@ -3,6 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <title>APIS&nbsp;//&nbsp;SPORT &mdash; 302 APIs de Apostas</title>
     <meta name="description" content="Terminal editorial para invocar as 302 APIs de apostas esportivas mapeadas do RapidAPI. Catálogo, presets, command palette, atalhos de teclado e exportação." />
     <meta name="theme-color" content="#0a0908" />
@@ -17,6 +20,9 @@
   </head>
   <body class="app grain" data-tab="catalog">
 
+    <!-- Skip link a11y — primeiro elemento focável -->
+    <a class="skip-link" href="#workspace">Pular para o conteúdo</a>
+
     <!-- ============================================================== -->
     <!-- TOP BAR — sticky brand + actions                                -->
     <!-- ============================================================== -->
@@ -25,7 +31,7 @@
         <span class="brand__mark">APIS</span>
         <span class="brand__slash">//</span>
         <span class="brand__name">SPORT</span>
-        <span class="brand__edition kbd">No. 302 · v2</span>
+        <span class="brand__edition kbd">No. 302 · v3.2</span>
       </a>
 
       <nav class="tabs" role="tablist" aria-label="Modos">
@@ -39,6 +45,11 @@
           Sessão
           <span class="tab__count" id="tab-count-session" aria-hidden="true">0</span>
         </button>
+        <button class="tab" role="tab" id="tab-dashboard" aria-controls="view-dashboard" aria-selected="false" data-tab="dashboard">
+          <span class="tab__dot" aria-hidden="true"></span>
+          Dashboard
+          <span class="tab__count tab__count--icon" aria-hidden="true">▦</span>
+        </button>
       </nav>
 
       <div class="topbar__actions">
@@ -48,6 +59,11 @@
           </svg>
           <span>Buscar</span>
           <kbd class="kbd kbd--key">⌘&thinsp;K</kbd>
+        </button>
+        <button id="open-help" class="action action--icon" aria-label="Ajuda / tour">
+          <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13Zm0 1.5a5 5 0 1 1 0 10A5 5 0 0 1 8 3Zm0 2.5a2 2 0 0 1 2 2c0 .8-.5 1.3-1 1.7-.4.3-.5.5-.5.8v.5h-1v-.6c0-.7.4-1.1.9-1.4.4-.3.6-.5.6-1a1 1 0 0 0-2 0H6a2 2 0 0 1 2-2Zm-.5 5.5h1v1h-1v-1Z" fill="currentColor"/>
+          </svg>
         </button>
         <button id="open-shortcuts" class="action action--icon" aria-label="Atalhos de teclado">
           <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
@@ -178,13 +194,32 @@
             </label>
           </div>
 
+          <label class="toggle">
+            <input id="f-hide-empty" type="checkbox" />
+            <span class="toggle__track" aria-hidden="true"></span>
+            <span class="toggle__label">
+              Esconder APIs sem telemetria
+              <small>(popularity = 0 no dossiê)</small>
+            </span>
+          </label>
+
           <!-- Chips de filtros ativos (removíveis) -->
           <div class="active-filters" id="active-filters" aria-live="polite" aria-label="Filtros ativos"></div>
         </form>
 
         <!-- Lista -->
-        <p class="catalog-meta" id="catalog-meta" role="status" aria-live="polite">carregando…</p>
-        <ul id="catalog-list" class="catalog-list" role="list"></ul>
+        <p class="catalog-meta" id="catalog-meta" role="status" aria-live="polite">
+          <span class="catalog-meta__spinner" aria-hidden="true"></span>
+          Carregando catálogo…
+        </p>
+        <ul id="catalog-list" class="catalog-list" role="list" aria-busy="true">
+          <!-- Skeleton placeholders durante o boot — substituídos pelo render real -->
+          <li class="catalog-item catalog-item--skeleton"><span class="sk sk-60"></span><div><span class="sk sk-80"></span><span class="sk sk-50"></span><span class="sk sk-90"></span></div><span class="sk sk-40"></span></li>
+          <li class="catalog-item catalog-item--skeleton"><span class="sk sk-60"></span><div><span class="sk sk-70"></span><span class="sk sk-40"></span><span class="sk sk-95"></span></div><span class="sk sk-40"></span></li>
+          <li class="catalog-item catalog-item--skeleton"><span class="sk sk-60"></span><div><span class="sk sk-85"></span><span class="sk sk-55"></span><span class="sk sk-75"></span></div><span class="sk sk-40"></span></li>
+          <li class="catalog-item catalog-item--skeleton"><span class="sk sk-60"></span><div><span class="sk sk-65"></span><span class="sk sk-45"></span><span class="sk sk-90"></span></div><span class="sk sk-40"></span></li>
+          <li class="catalog-item catalog-item--skeleton"><span class="sk sk-60"></span><div><span class="sk sk-90"></span><span class="sk sk-50"></span><span class="sk sk-80"></span></div><span class="sk sk-40"></span></li>
+        </ul>
       </section>
 
       <!-- ====== VIEW: SESSÃO ======================================== -->
@@ -242,16 +277,35 @@
             A chave fica em memória do browser. Saiu da aba, sumiu.
           </p>
 
-          <label class="field" id="key-field" hidden>
-            <span class="field__label">RapidAPI Key</span>
-            <input id="f-key" type="password" autocomplete="off" spellcheck="false"
-                   placeholder="cole a chave do seu painel rapidapi.com" />
-          </label>
+          <!-- Form wrapper para suprimir o aviso do Chrome
+               "Password field is not contained in a form" -->
+          <form id="key-form" onsubmit="return false;" autocomplete="off">
+            <label class="field" id="key-field" hidden>
+              <span class="field__label">RapidAPI Key</span>
+              <input id="f-key" type="password" name="rapidapi_key"
+                     autocomplete="off" spellcheck="false"
+                     placeholder="cole a chave do seu painel rapidapi.com" />
+            </label>
+          </form>
 
           <label class="field">
             <span class="field__label">Endpoint (sufixo do host)</span>
             <input id="f-endpoint" type="text" autocomplete="off" spellcheck="false"
-                   placeholder="/v1/sports" value="/" />
+                   placeholder="/v1/sports" value="/" list="endpoint-suggestions" />
+            <datalist id="endpoint-suggestions">
+              <option value="/"></option>
+              <option value="/v1/sports"></option>
+              <option value="/v4/sports/upcoming/odds?regions=us&markets=h2h"></option>
+              <option value="/getMLBTeams"></option>
+              <option value="/getNFLTeams"></option>
+              <option value="/api/v2/predictions?market=classic"></option>
+              <option value="/bet365/inplay"></option>
+              <option value="/odds"></option>
+              <option value="/teams"></option>
+              <option value="/leagues"></option>
+              <option value="/fixtures"></option>
+              <option value="/players"></option>
+            </datalist>
             <small class="field__hint">
               Cada API tem rotas próprias — consulte a página dela no RapidAPI.
               Em modo mock, o endpoint só é ecoado de volta.
@@ -279,6 +333,88 @@
           </p>
         </section>
       </section>
+
+      <!-- ====== VIEW: DASHBOARD ===================================== -->
+      <section
+        class="view view--dashboard"
+        id="view-dashboard"
+        role="tabpanel"
+        aria-labelledby="tab-dashboard"
+        hidden
+      >
+        <header class="view__head">
+          <div>
+            <p class="view__eyebrow">Insights · 302 APIs</p>
+            <h1 class="view__title">Dashboard analítico</h1>
+            <p class="view__deck">
+              Distribuição, ranking e correlações do catálogo. Tudo renderizado
+              em SVG nativo a partir do endpoint <code>/api/catalog/stats</code>.
+            </p>
+          </div>
+        </header>
+
+        <!-- Headline stats -->
+        <div class="kpis" id="kpis">
+          <div class="kpi"><b id="kpi-total">—</b><small>total</small></div>
+          <div class="kpi kpi--volt"><b id="kpi-freemium">—</b><small>freemium</small></div>
+          <div class="kpi kpi--cyan"><b id="kpi-providers">—</b><small>provedores</small></div>
+          <div class="kpi kpi--amber"><b id="kpi-empty">—</b><small>sem telemetria</small></div>
+          <div class="kpi"><b id="kpi-lat-p50">—<small style="margin-left:4px">ms</small></b><small>latência p50</small></div>
+          <div class="kpi"><b id="kpi-lat-p95">—<small style="margin-left:4px">ms</small></b><small>latência p95</small></div>
+          <div class="kpi"><b id="kpi-succ-mean">—<small style="margin-left:4px">%</small></b><small>sucesso médio</small></div>
+        </div>
+
+        <!-- Grid de charts -->
+        <div class="charts">
+          <article class="chart chart--span-2">
+            <header class="chart__head">
+              <h2>Distribuição por subcategoria</h2>
+              <span class="chart__hint">contagem · ordenado</span>
+            </header>
+            <div id="chart-subcategory" class="chart__body"></div>
+          </article>
+
+          <article class="chart">
+            <header class="chart__head">
+              <h2>Preço</h2>
+              <span class="chart__hint">share</span>
+            </header>
+            <div id="chart-pricing" class="chart__body"></div>
+          </article>
+
+          <article class="chart chart--span-2">
+            <header class="chart__head">
+              <h2>Histograma de popularidade</h2>
+              <span class="chart__hint">bins de 1 ponto · contagem</span>
+            </header>
+            <div id="chart-popularity" class="chart__body"></div>
+          </article>
+
+          <article class="chart">
+            <header class="chart__head">
+              <h2>Top provedores</h2>
+              <span class="chart__hint">por # de APIs</span>
+            </header>
+            <div id="chart-providers" class="chart__body"></div>
+          </article>
+
+          <article class="chart chart--span-3">
+            <header class="chart__head">
+              <h2>Latência × Taxa de sucesso</h2>
+              <span class="chart__hint">cada bolha = 1 API · tamanho = popularidade</span>
+            </header>
+            <div id="chart-scatter" class="chart__body"></div>
+          </article>
+
+          <article class="chart chart--span-3">
+            <header class="chart__head">
+              <h2>Top 10 por popularidade</h2>
+              <span class="chart__hint">leaderboard ao vivo</span>
+            </header>
+            <ol id="chart-leaderboard" class="leaderboard"></ol>
+          </article>
+        </div>
+      </section>
     </main>
 
     <!-- ============================================================== -->
@@ -293,9 +429,16 @@
       <div class="tray__chips" id="tray-chips" aria-label="APIs selecionadas"></div>
       <div class="tray__cta">
         <button id="btn-clear-selection" class="action action--ghost" aria-label="Limpar seleção">Limpar</button>
+        <button id="btn-cancel" class="action action--ghost" hidden aria-label="Cancelar execução">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.22 4.22a.75.75 0 0 1 1.06 0L8 6.94l2.72-2.72a.75.75 0 1 1 1.06 1.06L9.06 8l2.72 2.72a.75.75 0 1 1-1.06 1.06L8 9.06l-2.72 2.72a.75.75 0 0 1-1.06-1.06L6.94 8 4.22 5.28a.75.75 0 0 1 0-1.06Z" fill="currentColor"/></svg>
+          Cancelar
+        </button>
         <button id="btn-execute" class="cta" disabled>
-          <span>Executar</span>
-          <kbd class="kbd kbd--key kbd--inverse" aria-hidden="true">⌘&thinsp;↵</kbd>
+          <span class="cta__inner">
+            <span>Executar</span>
+            <kbd class="kbd kbd--key kbd--inverse" aria-hidden="true">⌘&thinsp;↵</kbd>
+          </span>
+          <span class="cta__progress" aria-hidden="true"></span>
         </button>
       </div>
     </aside>
@@ -354,6 +497,64 @@
       </div>
     </dialog>
 
+    <!-- Onboarding modal (mostra na primeira visita) -->
+    <dialog id="onboarding" class="modal modal--lg" aria-labelledby="onboarding-title">
+      <header class="modal__head">
+        <h2 id="onboarding-title">Bem-vindo ao <em>APIS&nbsp;//&nbsp;SPORT</em></h2>
+        <button class="modal__close" data-close="onboarding" aria-label="Fechar">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.22 4.22a.75.75 0 0 1 1.06 0L8 6.94l2.72-2.72a.75.75 0 1 1 1.06 1.06L9.06 8l2.72 2.72a.75.75 0 1 1-1.06 1.06L8 9.06l-2.72 2.72a.75.75 0 0 1-1.06-1.06L6.94 8 4.22 5.28a.75.75 0 0 1 0-1.06Z" fill="currentColor"/></svg>
+        </button>
+      </header>
+      <div class="modal__body">
+        <p class="onboarding__deck">
+          Terminal para invocar as <strong>302 APIs de apostas esportivas</strong> mapeadas do RapidAPI. Em 3 passos:
+        </p>
+        <ol class="onboarding__steps">
+          <li>
+            <span class="onboarding__num">1</span>
+            <div>
+              <h3>Descobrir</h3>
+              <p>Filtre por subcategoria, preço ou popularidade. Use os <strong>9 presets</strong> para acelerar (Top 10, Pinnacle, Bet365…) e o atalho <kbd class="kbd">/</kbd> para focar a busca.</p>
+            </div>
+          </li>
+          <li>
+            <span class="onboarding__num">2</span>
+            <div>
+              <h3>Selecionar</h3>
+              <p>Marque uma ou várias APIs. A <strong>tray no rodapé</strong> acompanha sua escolha com o botão <strong>Executar</strong> sempre alcançável.</p>
+            </div>
+          </li>
+          <li>
+            <span class="onboarding__num">3</span>
+            <div>
+              <h3>Executar &amp; ler</h3>
+              <p>Modo <strong>Mock</strong> roda sem chave (resposta sintética por subcategoria). Modo <strong>Real</strong> faz proxy do RapidAPI com sua chave. Veja a resposta em <em>tree / json / raw</em> e exporte JSON.</p>
+            </div>
+          </li>
+        </ol>
+        <div class="onboarding__cta">
+          <button class="cta cta--sm" data-close="onboarding">Começar</button>
+          <button class="action action--ghost" data-action="open-shortcuts-from-onboarding">Ver atalhos (?)</button>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- Confirm modal (batch grande, etc) -->
+    <dialog id="confirm" class="modal" aria-labelledby="confirm-title">
+      <header class="modal__head">
+        <h2 id="confirm-title">Confirmar</h2>
+      </header>
+      <div class="modal__body">
+        <p id="confirm-body" class="confirm__body"></p>
+        <div class="confirm__cta">
+          <button class="action action--ghost" data-confirm="cancel">Cancelar</button>
+          <button class="cta cta--sm" data-confirm="ok">Confirmar</button>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- (Boot error fullscreen removido — falhas agora aparecem como toast discreto) -->
+
     <!-- Toast container -->
     <div class="toasts" id="toasts" aria-live="polite" aria-atomic="true"></div>
 
@@ -362,7 +563,7 @@
     <!-- ============================================================== -->
     <footer class="footer" role="contentinfo">
       <p>
-        <span>APIS // SPORT</span> · v2.0 · catálogo extraído de
+        <span>APIS // SPORT</span> · v3.2 · catálogo extraído de
         <a href="https://rapidapi.com" target="_blank" rel="noopener">rapidapi.com</a> em 11/05/2026 ·
         <code>npm test</code> · <code>npm run qa</code>
       </p>
@@ -379,7 +580,7 @@
           <input type="checkbox" class="catalog-item__cb" tabindex="-1" />
           <span class="catalog-item__id" data-field="id">000</span>
         </label>
-        <button class="catalog-item__main" data-action="open-drawer">
+        <button class="catalog-item__main" data-action="open-drawer" aria-label="Abrir detalhes da API">
           <h3 class="catalog-item__name" data-field="name"></h3>
           <p class="catalog-item__meta">
             <span data-field="subcategory" class="tag tag--sub"></span>

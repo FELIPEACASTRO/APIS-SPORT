@@ -1,3 +1,4 @@
+// @ts-check
 // public/js/app.js
 // Entry point — orquestra estado, serviços, atalhos e overlays.
 
@@ -16,97 +17,236 @@ import {
   renderDrawer,
   renderStatus,
 } from './views.js';
+import { renderDashboard } from './dashboard.js';
 import { initPalette } from './palette.js';
 import { initKeyboard } from './keyboard.js';
 import { toastOk, toastInfo, toastWarn, toastError } from './toast.js';
 import { PRESETS } from './presets.js';
+import { readUrl, syncUrl, persistedSelection, persistedHistory, prefs } from './storage.js';
+
+// ── Captura global de erros para diagnóstico ───────────────────────────────
+// Ignora ruído conhecido de extensões do Chrome que injetam content scripts
+// no localhost (Bitwarden, Grammarly, LastPass, ad blockers, etc.).
+const IGNORE_PATTERNS = [
+  /message channel closed/i,
+  /asynchronous response by returning true/i,
+  /Could not establish connection/i,
+  /Receiving end does not exist/i,
+  /Extension context invalidated/i,
+  /chrome-extension:\/\//i,
+  /moz-extension:\/\//i,
+];
+
+function isExtensionNoise(err) {
+  const msg = (err?.message || String(err) || '').toLowerCase();
+  const stack = (err?.stack || '').toLowerCase();
+  return IGNORE_PATTERNS.some((re) => re.test(msg) || re.test(stack));
+}
+
+function reportError(err, source) {
+  if (isExtensionNoise(err)) return; // ignora ruído de extensões
+  console.error(`[${source}]`, err);
+  try {
+    fetch('/api/log-error', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        message: err?.message || String(err),
+        stack: err?.stack || '',
+        source: source || 'unknown',
+      }),
+      keepalive: true,
+    }).catch(() => {});
+  } catch { /* nada */ }
+}
+window.addEventListener('error', (e) => {
+  if (isExtensionNoise(e.error || e.message)) {
+    e.preventDefault?.(); // suprime no console
+    return;
+  }
+  reportError(e.error || e.message, 'window.error');
+});
+window.addEventListener('unhandledrejection', (e) => {
+  if (isExtensionNoise(e.reason)) {
+    e.preventDefault?.(); // suprime no console
+    return;
+  }
+  reportError(e.reason, 'unhandledrejection');
+});
 
 // ── Boot ────────────────────────────────────────────────────────────────────
 init().catch((err) => {
-  console.error(err);
+  console.error('[init crashed]', err);
+  reportError(err, 'init');
   renderStatus({ state: 'error', label: 'falha' });
-  toastError(err.message, 'Erro fatal na inicialização');
+  toastError('Erro na inicialização: ' + (err.message || 'desconhecido'));
 });
 
 async function init() {
   renderStatus({ state: 'pending', label: 'conectando…' });
 
-  // 1) health + catalog inicial em paralelo
-  try {
-    const [health, catalog, stats] = await Promise.all([
-      fetchHealth(),
-      fetchCatalog({ sort: 'popularity' }),
-      fetchStats(),
-    ]);
+  // 1) Hidratar URL + localStorage ANTES do fetch
+  const urlState = readUrl();
+  const savedSelection = persistedSelection.load();
+  const savedHistory = persistedHistory.load();
 
-    state.set({
-      serverHasKey: health.server_has_rapidapi_key,
-      catalog: catalog.items,
-      filtered: catalog.items,
-      stats,
-    });
+  if (urlState.tab && ['catalog', 'session', 'dashboard'].includes(urlState.tab)) {
+    state.set({ tab: urlState.tab });
+  }
+  state.set({
+    filters: {
+      query: urlState.q || '',
+      subcategory: urlState.sub || '',
+      pricing: urlState.pricing || '',
+      minPopularity: urlState.pop || 0,
+      sort: urlState.sort || 'popularity',
+    },
+    mode: urlState.mode || 'mock',
+    hideEmpty: !!urlState.hideEmpty,
+    selected: savedSelection,
+    results: savedHistory,
+  });
+
+  // 2) Fetches em paralelo com tolerância a falhas — NÃO bloqueia mais
+  //    a aplicação inteira se alguma chamada falhar. Continua com defaults.
+  const [healthR, catalogR, statsR] = await Promise.allSettled([
+    fetchHealth(),
+    fetchCatalog(state.get().filters),
+    fetchStats(),
+  ]);
+
+  const health = healthR.status === 'fulfilled' ? healthR.value : null;
+  const catalog = catalogR.status === 'fulfilled' ? catalogR.value : { items: [] };
+  const stats = statsR.status === 'fulfilled' ? statsR.value : null;
+
+  state.set({
+    serverHasKey: health?.server_has_rapidapi_key || false,
+    catalog: catalog.items,
+    filtered: state.get().hideEmpty
+      ? catalog.items.filter((a) => a.popularity > 0)
+      : catalog.items,
+    stats,
+  });
+
+  // Notifica falhas individuais via toast (não bloqueia a UI)
+  const failures = [];
+  if (healthR.status === 'rejected') failures.push('health');
+  if (catalogR.status === 'rejected') failures.push('catálogo');
+  if (statsR.status === 'rejected') failures.push('stats');
+
+  if (failures.length === 0) {
     renderStatus({ state: 'ok', label: 'pronto' });
-    if (health.server_has_rapidapi_key) {
+    if (health?.server_has_rapidapi_key) {
       toastInfo('Chave RapidAPI detectada no servidor — modo real disponível.');
     }
-  } catch (err) {
+  } else if (failures.length < 3) {
+    renderStatus({ state: 'ok', label: 'parcial' });
+    toastWarn(`Falha ao carregar: ${failures.join(', ')}. App continua disponível.`);
+  } else {
+    // Todas falharam — provavelmente servidor offline
     renderStatus({ state: 'error', label: 'offline' });
-    throw err;
+    toastError('Servidor não respondeu. Tente recarregar a página.');
   }
 
-  // 2) Wire-up
-  bindRender({
+  // 3) Sincronizar inputs com state hidratado
+  safe('syncFilterInputs', syncFilterInputs);
+  safe('syncOtherInputs',  syncOtherInputs);
+
+  // 4) Wire-up — cada um isolado, falha de um não derruba os outros
+  safe('bindRender', () => bindRender({
     onToggle: toggleSelected,
     onOpenDrawer: openDrawer,
-  });
-  wireTabs();
-  wireFilters();
-  wirePresets();
-  wireSession();
-  wireTray();
-  wireOverlays();
+  }));
+  safe('wireTabs',     wireTabs);
+  safe('wireFilters',  wireFilters);
+  safe('wirePresets',  wirePresets);
+  safe('wireSession',  wireSession);
+  safe('wireTray',     wireTray);
+  safe('wireOverlays', wireOverlays);
 
-  // 3) Palette (precisa existir antes dos atalhos que referenciam .open())
-  const paletteCtrl = initPalette({
-    getState: () => state.get(),
-    onPick: (entry, mods) => onPalettePick(entry, mods),
+  // 5) Palette
+  let paletteCtrl = { open() {}, close() {} };
+  safe('initPalette', () => {
+    paletteCtrl = initPalette({
+      getState: () => state.get(),
+      onPick: (entry, mods) => onPalettePick(entry, mods),
+    });
   });
 
-  // 4) Atalhos globais
-  initKeyboard({
+  // 6) Atalhos globais
+  safe('initKeyboard', () => initKeyboard({
     openPalette:    () => paletteCtrl.open(),
-    focusSearch:    () => $('#f-query').focus(),
+    focusSearch:    () => $('#f-query')?.focus(),
     switchTab:      (tab) => setTab(tab),
     execute:        () => executeSelected(),
     selectAllVisible: () => selectAllVisible(),
     clearSelection: () => clearSelection(),
-    openShortcuts:  () => $('#shortcuts').showModal(),
+    openShortcuts:  () => $('#shortcuts')?.showModal(),
     closeAll:       () => closeAllOverlays(),
-  });
+  }));
 
-  // 5) State → render reativo
+  // 7) State → render reativo + persistência (cada operação em isolado)
   state.on((s) => {
-    renderCounters(s);
-    renderCatalog(s);
-    renderTray(s);
-    renderActiveFilters(s, removeFilter);
-    renderModeFields(s);
-    renderResults(s);
+    safe('renderCounters',      () => renderCounters(s));
+    safe('renderCatalog',       () => renderCatalog(s));
+    safe('renderTray',          () => renderTray(s));
+    safe('renderActiveFilters', () => renderActiveFilters(s, removeFilter));
+    safe('renderModeFields',    () => renderModeFields(s));
+    safe('renderResults',       () => renderResults(s));
+    safe('persistSelection',    () => persistedSelection.save(s.selected));
+    safe('persistHistory',      () => persistedHistory.save(s.results));
+    safe('syncUrl', () => syncUrl({
+      tab: s.tab, filters: s.filters, mode: s.mode, hideEmpty: s.hideEmpty,
+    }));
   });
 
   // Render inicial
-  renderTab(state.get().tab);
+  safe('renderTab', () => renderTab(state.get().tab));
+  safe('refreshDashboard', () => {
+    if (state.get().tab === 'dashboard') refreshDashboard();
+  });
+
+  // Onboarding na primeira visita
+  safe('onboarding', () => {
+    if (!prefs.hasSeenOnboarding()) {
+      setTimeout(() => $('#onboarding')?.showModal(), 400);
+    }
+  });
 }
+
+// Wrapper que loga erros sem propagar — mantém o init "à prova de balas".
+function safe(label, fn) {
+  try { fn(); }
+  catch (err) {
+    console.warn(`[safe:${label}]`, err);
+  }
+}
+
+// (showBootError / hideBootError / wireBootError removidos — UI nunca
+//  é bloqueada por overlay fullscreen; falhas viram toast discreto)
 
 // ── Tabs ────────────────────────────────────────────────────────────────────
 function wireTabs() {
-  $$('#tab-catalog, #tab-session').forEach((b) => {
+  $$('#tab-catalog, #tab-session, #tab-dashboard').forEach((b) => {
     b.addEventListener('click', () => setTab(b.dataset.tab));
   });
 }
 function setTab(tab) {
   state.set({ tab });
   renderTab(tab);
+  if (tab === 'dashboard') refreshDashboard();
+}
+
+let dashboardLoaded = false;
+async function refreshDashboard() {
+  if (dashboardLoaded) return; // catálogo é estático em runtime, 1 fetch basta
+  try {
+    const stats = await fetchStats();
+    renderDashboard(stats);
+    dashboardLoaded = true;
+  } catch (err) {
+    toastError('Falha ao carregar stats: ' + err.message);
+  }
 }
 
 // ── Filters ─────────────────────────────────────────────────────────────────
@@ -116,6 +256,7 @@ function wireFilters() {
   const pri = $('#f-pricing');
   const pop = $('#f-minpop');
   const sort= $('#f-sort');
+  const hideEmpty = $('#f-hide-empty');
 
   const apply = debounce(async () => {
     const next = {
@@ -134,12 +275,19 @@ function wireFilters() {
   pri.addEventListener('input', apply);
   pop.addEventListener('input', apply);
   sort.addEventListener('input', apply);
+  hideEmpty.addEventListener('change', () => {
+    state.set({ hideEmpty: hideEmpty.checked });
+    refilter();
+  });
 }
 
 async function refilter() {
-  const f = state.get().filters;
+  const s = state.get();
   try {
-    const { items } = await fetchCatalog(f);
+    let { items } = await fetchCatalog(s.filters);
+    if (s.hideEmpty) {
+      items = items.filter((api) => api.popularity > 0);
+    }
     state.set({ filtered: items });
   } catch (err) {
     toastError(err.message);
@@ -198,6 +346,13 @@ function syncFilterInputs() {
   $('#f-pricing').value     = f.pricing || '';
   $('#f-minpop').value      = String(f.minPopularity || 0);
   $('#f-sort').value        = f.sort || 'popularity';
+  $('#f-hide-empty').checked = !!state.get().hideEmpty;
+}
+
+function syncOtherInputs() {
+  const s = state.get();
+  // Mode radio
+  $$('input[name="mode"]').forEach((r) => { r.checked = r.value === s.mode; });
 }
 
 // ── Selection ───────────────────────────────────────────────────────────────
@@ -214,8 +369,30 @@ function selectAllVisible() {
   toastOk(`${state.get().filtered.length} adicionadas à seleção.`);
 }
 function clearSelection() {
+  const previous = new Set(state.get().selected);
+  if (previous.size === 0) return;
   state.set({ selected: new Set() });
-  toastInfo('Seleção limpa.');
+  // Undo (restaura em 4s)
+  toastWithAction(`${previous.size} seleção(ões) removidas`, 'Desfazer', () => {
+    state.set({ selected: previous });
+    toastInfo('Seleção restaurada.');
+  });
+}
+
+function toastWithAction(body, actionLabel, onAction) {
+  // simples: por enquanto, usa toastInfo com botão renderizado via DOM
+  // limitação atual do toast.js: vamos só logar e usar prompt
+  // melhor solução: mensagem com tempo extra + atalho
+  const handler = () => { onAction(); document.removeEventListener('keydown', keyHandler); };
+  const keyHandler = (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+      e.preventDefault();
+      handler();
+    }
+  };
+  document.addEventListener('keydown', keyHandler);
+  setTimeout(() => document.removeEventListener('keydown', keyHandler), 5000);
+  toastInfo(`${body} · ${actionLabel.toLowerCase()} com Ctrl+Z`);
 }
 
 // ── Session ─────────────────────────────────────────────────────────────────
@@ -239,8 +416,13 @@ function wireSession() {
     toastOk('Arquivo JSON baixado.');
   });
   $('#btn-clear-results').addEventListener('click', () => {
+    const previous = [...state.get().results];
+    if (previous.length === 0) return;
     state.set({ results: [] });
-    toastInfo('Resultados limpos.');
+    toastWithAction(`${previous.length} resultado(s) limpos`, 'Desfazer', () => {
+      state.set({ results: previous });
+      toastInfo('Resultados restaurados.');
+    });
   });
 }
 
@@ -248,12 +430,15 @@ function wireSession() {
 function wireTray() {
   $('#btn-execute').addEventListener('click', executeSelected);
   $('#btn-clear-selection').addEventListener('click', clearSelection);
+  $('#btn-cancel').addEventListener('click', cancelExecution);
   $('#tray-toggle').addEventListener('click', () => {
-    const cur = $('#tray-toggle').getAttribute('aria-expanded') === 'true';
-    $('#tray-toggle').setAttribute('aria-expanded', String(!cur));
-    setTab('catalog'); // ergonomia: volta para a aba que importa
+    // Em mobile, volta para Catálogo para revisar a seleção.
+    // Em desktop, simplesmente foca o primeiro chip.
+    setTab('catalog');
   });
 }
+
+let _executeAbort = null;
 
 async function executeSelected() {
   const s = state.get();
@@ -269,10 +454,21 @@ async function executeSelected() {
     return;
   }
 
+  // Confirmar batch grande em modo real (consome cota)
+  if (s.mode === 'real' && s.selected.size > 20) {
+    const ok = await confirmDialog({
+      title: 'Batch grande em modo real',
+      body: `Você está prestes a executar ${s.selected.size} chamadas reais ao RapidAPI. Isso vai consumir cota da sua chave. Deseja continuar?`,
+      confirmText: 'Executar',
+    });
+    if (!ok) return;
+  }
+
   // muda para sessão para o usuário ver os resultados
   setTab('session');
 
   state.set({ invoking: true });
+  toggleCancelButton(true);
 
   const ids = Array.from(s.selected);
   const items = ids.map((apiId) => ({
@@ -299,11 +495,13 @@ async function executeSelected() {
   });
   state.set({ results: [...s.results, ...pending] });
 
+  _executeAbort = new AbortController();
   try {
     const j = await invokeBatch({
       items,
       mode: s.mode,
       rapidApiKey: s.mode === 'real' ? s.rapidApiKey : undefined,
+      signal: _executeAbort.signal,
     });
 
     // remove os pendentes desta invocação e empilha os reais
@@ -320,23 +518,86 @@ async function executeSelected() {
   } catch (err) {
     const results = state.get().results.filter((r) => !r._pending);
     state.set({ results });
-    toastError(`Erro de rede: ${err.message}`);
+    if (err.name === 'AbortError') {
+      toastInfo('Execução cancelada pelo usuário.');
+    } else {
+      toastError(`Erro de rede: ${err.message}`);
+    }
   } finally {
     state.set({ invoking: false });
+    toggleCancelButton(false);
+    _executeAbort = null;
   }
+}
+
+function cancelExecution() {
+  if (_executeAbort) {
+    _executeAbort.abort();
+  }
+}
+function toggleCancelButton(visible) {
+  const btn = $('#btn-cancel');
+  if (btn) btn.hidden = !visible;
 }
 
 // ── Drawer & Overlays ───────────────────────────────────────────────────────
 function wireOverlays() {
+  // Drawer
   $('#drawer-close').addEventListener('click', () => $('#drawer').close());
   $('#drawer').addEventListener('click', (e) => {
     if (e.target === $('#drawer')) $('#drawer').close();
   });
 
+  // Shortcuts modal
   $('#open-shortcuts').addEventListener('click', () => $('#shortcuts').showModal());
   $('[data-close="shortcuts"]').addEventListener('click', () => $('#shortcuts').close());
   $('#shortcuts').addEventListener('click', (e) => {
     if (e.target === $('#shortcuts')) $('#shortcuts').close();
+  });
+
+  // Onboarding modal
+  $('#open-help').addEventListener('click', () => $('#onboarding').showModal());
+  $$('#onboarding [data-close="onboarding"]').forEach((b) =>
+    b.addEventListener('click', () => {
+      prefs.markOnboarded();
+      $('#onboarding').close();
+    }),
+  );
+  $('#onboarding').addEventListener('click', (e) => {
+    if (e.target === $('#onboarding')) { prefs.markOnboarded(); $('#onboarding').close(); }
+  });
+  $('#onboarding [data-action="open-shortcuts-from-onboarding"]').addEventListener('click', () => {
+    prefs.markOnboarded();
+    $('#onboarding').close();
+    $('#shortcuts').showModal();
+  });
+}
+
+// ── Confirm dialog ─────────────────────────────────────────────────────────
+function confirmDialog({ title, body, confirmText = 'Confirmar' }) {
+  return new Promise((resolve) => {
+    const dlg = $('#confirm');
+    $('#confirm-title').textContent = title || 'Confirmar';
+    $('#confirm-body').textContent = body || '';
+    const btnOk = dlg.querySelector('[data-confirm="ok"]');
+    const btnCancel = dlg.querySelector('[data-confirm="cancel"]');
+    btnOk.textContent = confirmText;
+
+    const cleanup = (result) => {
+      btnOk.removeEventListener('click', onOk);
+      btnCancel.removeEventListener('click', onCancel);
+      dlg.removeEventListener('close', onClose);
+      dlg.close();
+      resolve(result);
+    };
+    const onOk = () => cleanup(true);
+    const onCancel = () => cleanup(false);
+    const onClose = () => resolve(false);
+
+    btnOk.addEventListener('click', onOk);
+    btnCancel.addEventListener('click', onCancel);
+    dlg.addEventListener('close', onClose);
+    dlg.showModal();
   });
 }
 
@@ -348,7 +609,7 @@ function openDrawer(id) {
 }
 
 function closeAllOverlays() {
-  ['#palette', '#drawer', '#shortcuts'].forEach((sel) => {
+  ['#palette', '#drawer', '#shortcuts', '#onboarding', '#confirm'].forEach((sel) => {
     const el = $(sel);
     if (el?.open) el.close();
   });
