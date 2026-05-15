@@ -209,7 +209,7 @@ async function runAll() {
     assert(r.status === 400);
   });
 
-  // ── v3.0 production checks ──────────────────────────────────────────────
+  // ── v3.2 production checks ──────────────────────────────────────────────
   await step('GET /api/live → 200', async () => {
     const r = await req('GET', '/api/live');
     assert(r.status === 200);

@@ -28,7 +28,7 @@ before(() => {
 
 after(() => new Promise((resolve) => server.close(resolve)));
 
-function request(method, path, body) {
+function request(method, path, body, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
     const url = new URL(path, baseUrl);
     const data = body ? Buffer.from(JSON.stringify(body)) : null;
@@ -41,6 +41,7 @@ function request(method, path, body) {
         headers: {
           'content-type': 'application/json',
           'content-length': data ? data.length : 0,
+          ...extraHeaders,
         },
       },
       (res) => {
@@ -178,7 +179,7 @@ test('POST /api/invoke em mode=real sem chave devolve status 502 (erro de gatewa
   assert.match(r.body.error, /chave|key/i);
 });
 
-// ── v3.0.0 — production-grade ──────────────────────────────────────────────
+// ── v3.2.0 — production-grade ──────────────────────────────────────────────
 test('GET /api/live retorna 200', async () => {
   const r = await request('GET', '/api/live');
   assert.equal(r.status, 200);
@@ -242,6 +243,19 @@ test('Security headers presentes (CSP, X-Frame-Options, etc.)', async () => {
 test('CORS preflight OPTIONS responde 204', async () => {
   const r = await request('OPTIONS', '/api/catalog');
   assert.equal(r.status, 204);
+});
+
+test('CORS preflight permite headers de autenticação documentados', async () => {
+  const r = await request('OPTIONS', '/api/invoke', null, {
+    origin: 'http://localhost:3000',
+    'access-control-request-method': 'POST',
+    'access-control-request-headers': 'content-type, authorization, x-invoke-token, x-metrics-token',
+  });
+  assert.equal(r.status, 204);
+  const allowed = r.headers['access-control-allow-headers'].toLowerCase();
+  assert.match(allowed, /authorization/);
+  assert.match(allowed, /x-invoke-token/);
+  assert.match(allowed, /x-metrics-token/);
 });
 
 test('Validation: apiId não numérico retorna 400 estruturado', async () => {

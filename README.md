@@ -1,9 +1,9 @@
 # APIS&nbsp;//&nbsp;SPORT
 
 [![CI](https://img.shields.io/github/actions/workflow/status/FELIPEACASTRO/APIS-SPORT/ci.yml?label=CI)](https://github.com/FELIPEACASTRO/APIS-SPORT/actions)
-[![Node](https://img.shields.io/badge/node-22%2B-brightgreen)](#)
+[![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](#)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Version](https://img.shields.io/badge/version-3.0.0-blueviolet)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-3.2.0-blueviolet)](CHANGELOG.md)
 
 > Plataforma **production-grade** para invocar as **302 APIs de apostas esportivas** do RapidAPI mapeadas no dossiê de 11/05/2026.
 
@@ -68,7 +68,7 @@ npm run qa                 # QA report — 302/302 mock-302 OK
 npm run qa:100x            # double-check 100x: contrato, segurança, dados, UX/UI/A11y
 npm run qa -- --real       # + amostra real (requer RAPIDAPI_KEY)
 npm run smoke              # 25+ cenários end-to-end
-npm run homolog            # pipeline completo: lint + test + qa + qa:100x + smoke
+npm run homolog            # pipeline completo: lint + test + qa + qa:100x + smoke + integration
 npm run docker:build       # docker build .
 npm run docker:run         # docker run apis-sport:latest
 npm run docker:compose     # docker compose up --build

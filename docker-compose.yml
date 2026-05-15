@@ -17,7 +17,10 @@ services:
       LOG_FORMAT: pretty
       LOG_LEVEL: info
       RATE_LIMIT_ENABLED: "true"
-      # RAPIDAPI_KEY: <descomente e cole sua chave para usar modo real>
+      # RAPIDAPI_KEY: <chave server-side para modo real>
+      # REAL_INVOKE_TOKEN: <token interno obrigatório quando RAPIDAPI_KEY estiver ativa>
+      # METRICS_TOKEN: <token opcional para proteger /api/metrics*>
+      ALLOW_CLIENT_RAPIDAPI_KEY: "false"
     restart: unless-stopped
     healthcheck:
       test:

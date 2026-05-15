@@ -445,7 +445,7 @@ const log = {
   banner: () => {
     console.log('');
     console.log(c('═'.repeat(78), 90));
-    console.log(c('  INTEGRATION TEST', '1;38;5;226') + c('  /  APIS // SPORT v3.0', 90));
+    console.log(c('  INTEGRATION TEST', '1;38;5;226') + c('  /  APIS // SPORT v3.2', 90));
     console.log(c('  servidor real subindo · HTTP real · sem mocks/stubs nos testes', 90));
     if (REAL && REAL_KEY) console.log(c('  modo: --real (chamadas ao vivo ao RapidAPI)', '1;36'));
     else if (REAL_KEY) console.log(c('  modo: padrão (chave detectada, mas sem --real)', 33));

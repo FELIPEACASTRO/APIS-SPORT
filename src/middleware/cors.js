@@ -22,7 +22,7 @@ export function cors() {
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader(
       'Access-Control-Allow-Headers',
-      'Content-Type, X-Request-ID, X-RapidAPI-Key',
+      'Content-Type, Authorization, X-Request-ID, X-RapidAPI-Key, X-Invoke-Token, X-Metrics-Token',
     );
     res.setHeader('Access-Control-Max-Age', '600');
 

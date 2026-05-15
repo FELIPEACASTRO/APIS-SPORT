@@ -42,6 +42,7 @@ function staticContractChecks() {
   assertCheck('.env.example usa CORS explícito', /CORS_ORIGIN=http:\/\/localhost:3000/.test(env));
   assertCheck('OpenAPI documenta /api/log-error', /\/api\/log-error:/.test(openapi));
   assertCheck('OpenAPI documenta InvokeToken/MetricsToken/BearerAuth', /InvokeToken:/.test(openapi) && /MetricsToken:/.test(openapi) && /BearerAuth:/.test(openapi));
+  assertCheck('CORS permite headers de InvokeToken/MetricsToken/BearerAuth', /Authorization/.test(read('src/middleware/cors.js')) && /X-Invoke-Token/.test(read('src/middleware/cors.js')) && /X-Metrics-Token/.test(read('src/middleware/cors.js')));
 }
 
 function sourceSecurityChecks() {
@@ -107,11 +108,13 @@ function frontendUxUiA11yChecks() {
 }
 
 function documentationFreshnessChecks() {
+  const pkg = json('package.json');
   const readme = read('README.md');
   const ops = read('OPERATIONS.md');
   assertCheck('README não recomenda colar chave RapidAPI na UI em produção', !/cole sua chave na UI/i.test(readme));
   assertCheck('README documenta REAL_INVOKE_TOKEN', /REAL_INVOKE_TOKEN/.test(readme));
   assertCheck('README documenta qa:100x', /qa:100x/.test(readme));
+  assertCheck('README badge de versão acompanha package.json', readme.includes(`version-${pkg.version}-blueviolet`));
   assertCheck('OPERATIONS não afirma que cliente pode enviar chave por request', !/cliente também pode enviar/i.test(ops));
   assertCheck('OPERATIONS documenta METRICS_TOKEN e ALLOW_CLIENT_RAPIDAPI_KEY', /METRICS_TOKEN/.test(ops) && /ALLOW_CLIENT_RAPIDAPI_KEY/.test(ops));
 }
