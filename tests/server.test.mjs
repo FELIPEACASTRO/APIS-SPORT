@@ -255,6 +255,34 @@ test('Validation: mode inválido retorna 400', async () => {
   assert.equal(r.status, 400);
 });
 
+
+
+test('Validation: endpoint absoluto é rejeitado', async () => {
+  const r = await request('POST', '/api/invoke', { apiId: 1, endpoint: 'https://evil.example/path' });
+  assert.equal(r.status, 400);
+  assert.ok(r.body.details.some((d) => /relativo|absoluta/i.test(d)));
+});
+
+test('Request ID inválido do cliente é substituído por UUID seguro', async () => {
+  const r = await new Promise((resolve, reject) => {
+    const url = new URL('/api/health', baseUrl);
+    const req = http.request(
+      { hostname: url.hostname, port: url.port, path: url.pathname, method: 'GET',
+        headers: { 'x-request-id': 'id inválido com espaço' } },
+      (res) => { let b=''; res.on('data', c => b+=c); res.on('end', () => resolve({headers:res.headers,body:JSON.parse(b)})); }
+    );
+    req.on('error', reject); req.end();
+  });
+  assert.notEqual(r.headers['x-request-id'], 'id inválido com espaço');
+  assert.match(r.headers['x-request-id'], /^[A-Za-z0-9._:-]+$/);
+});
+
+test('POST /api/log-error rejeita payload vazio', async () => {
+  const r = await request('POST', '/api/log-error', {});
+  assert.equal(r.status, 400);
+  assert.match(r.body.error, /vazio/);
+});
+
 test('Validation: batch com item inválido retorna 400 com detalhes', async () => {
   const r = await request('POST', '/api/invoke/batch', {
     items: [{ apiId: 1 }, { apiId: 'x' }],

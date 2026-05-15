@@ -8,6 +8,7 @@
 // SRP estrito: este módulo NÃO conhece HTTP/Express. Recebe descritor da chamada
 // e retorna um Promise<InvokeResult>. Plugável.
 
+import { config } from './config.js';
 import { getApiById } from './catalog.js';
 import { mockResponseFor } from './mock.js';
 
@@ -32,31 +33,34 @@ import { mockResponseFor } from './mock.js';
  * @property {string} [error]
  */
 
-const DEFAULT_TIMEOUT_MS = 10_000;
-
 /** @param {InvokeRequest} req */
 export async function invokeApi(req) {
   const started = Date.now();
-  const api = getApiById(req.apiId);
-  const endpoint = normalizeEndpoint(req.endpoint || '/');
-  const mode = decideMode(req);
+  let api;
+  let endpoint = '/';
+  let mode = 'mock';
 
   try {
+    api = getApiById(req.apiId);
+    endpoint = normalizeEndpoint(req.endpoint || '/');
+    mode = decideMode(req);
     if (mode === 'mock') {
       const data = mockResponseFor(api, endpoint);
       return buildResult({ api, endpoint, mode, status: 200, data, started, ok: true });
     }
     return await invokeReal({ api, endpoint, req, started });
   } catch (err) {
+    const message = err?.message || String(err);
+    const status = /não encontrada|not found/i.test(message) ? 404 : 0;
     return buildResult({
-      api,
+      api: api || { id: Number(req.apiId) || 0, name: 'API desconhecida', rapidapi_host: '' },
       endpoint,
       mode,
-      status: 0,
+      status,
       data: null,
       started,
       ok: false,
-      error: err?.message || String(err),
+      error: message,
     });
   }
 }
@@ -83,7 +87,7 @@ async function invokeReal({ api, endpoint, req, started }) {
   }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), config.UPSTREAM_TIMEOUT_MS);
 
   try {
     const response = await fetch(url, {
@@ -103,7 +107,7 @@ async function invokeReal({ api, endpoint, req, started }) {
       data = { _raw: text.slice(0, 2000) };
     }
     return buildResult({
-      api,
+      api: api || { id: Number(req.apiId) || 0, name: 'API desconhecida', rapidapi_host: '' },
       endpoint,
       mode: 'real',
       status: response.status,

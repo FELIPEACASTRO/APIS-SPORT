@@ -25,9 +25,9 @@ Abra o navegador, filtre por subcategoria/preço/popularidade, marque as APIs e 
 | Modo | Quando usar | Requer chave |
 |---|---|---|
 | **Mock** | Demo, QA, desenvolvimento offline | ❌ |
-| **Real** | Chamada real ao RapidAPI | ✅ `X-RapidAPI-Key` |
+| **Real** | Chamada real ao RapidAPI via chave server-side | ✅ `RAPIDAPI_KEY` + `REAL_INVOKE_TOKEN` em produção |
 
-Para usar modo real, ou cole sua chave na UI (campo `RapidAPI Key`) ou exporte `RAPIDAPI_KEY=...` antes de subir o servidor.
+Para produção, configure `RAPIDAPI_KEY` no servidor e proteja chamadas reais com `REAL_INVOKE_TOKEN` (`X-Invoke-Token` ou `Authorization: Bearer ...`). O envio de chave RapidAPI pelo browser deve permanecer desabilitado com `ALLOW_CLIENT_RAPIDAPI_KEY=false`.
 
 ---
 
@@ -46,11 +46,13 @@ Para usar modo real, ou cole sua chave na UI (campo `RapidAPI Key`) ou exporte `
 │   └── app.js                   # ESM module — filtros, seleção, batch, render
 ├── data/bets-apis/              # catálogo fonte (302 APIs em 3 JSONs)
 ├── tests/
-│   ├── catalog.test.mjs         # 10 testes — shape, distribuição, filtros
-│   ├── invoker.test.mjs         # 6 testes — incluindo "TODAS as 302 APIs em mock"
-│   └── server.test.mjs          # 10 testes — rotas HTTP do Express
+│   ├── catalog.test.mjs         # shape, distribuição, filtros
+│   ├── config.test.mjs          # hardening de env/config
+│   ├── invoker.test.mjs         # invoker + TODAS as 302 APIs em mock
+│   └── server.test.mjs          # rotas HTTP, validação e regressões
 └── scripts/
-    └── qa-report.mjs            # relatório executivo (PASS/FAIL para 302 APIs)
+    ├── qa-report.mjs            # relatório executivo (PASS/FAIL para 302 APIs)
+    └── qa-100x.mjs              # double-check 100x: contrato, segurança, UX/UI/A11y
 ```
 
 ---
@@ -61,11 +63,12 @@ Para usar modo real, ou cole sua chave na UI (campo `RapidAPI Key`) ou exporte `
 npm start                  # produção (Node)
 npm run dev                # --watch
 npm run lint               # ESLint (zero erros é requisito)
-npm test                   # 45 testes unitários
+npm test                   # suíte Node test (60+ cenários)
 npm run qa                 # QA report — 302/302 mock-302 OK
+npm run qa:100x            # double-check 100x: contrato, segurança, dados, UX/UI/A11y
 npm run qa -- --real       # + amostra real (requer RAPIDAPI_KEY)
-npm run smoke              # 25 cenários end-to-end
-npm run homolog            # pipeline completo: lint + test + qa + smoke
+npm run smoke              # 25+ cenários end-to-end
+npm run homolog            # pipeline completo: lint + test + qa + qa:100x + smoke
 npm run docker:build       # docker build .
 npm run docker:run         # docker run apis-sport:latest
 npm run docker:compose     # docker compose up --build
@@ -86,7 +89,11 @@ npm run docker:compose     # docker compose up --build
 | Variável | Default | Função |
 |---|---|---|
 | `PORT` | `3000` | porta do servidor |
-| `RAPIDAPI_KEY` | — | chave RapidAPI usada pelo proxy real |
+| `RAPIDAPI_KEY` | — | chave RapidAPI server-side usada pelo proxy real |
+| `REAL_INVOKE_TOKEN` | — | token interno para liberar modo real em produção |
+| `REQUIRE_REAL_AUTH` | `true` em produção | exige `X-Invoke-Token`/Bearer para chamadas reais com chave server-side |
+| `ALLOW_CLIENT_RAPIDAPI_KEY` | `false` em produção | controla se o body pode trazer `rapidApiKey`; mantenha `false` em produção |
+| `METRICS_TOKEN` | — | protege `/api/metrics*` quando configurado |
 | `QA_REAL_SAMPLE` | `3` | tamanho da amostra real no QA |
 
 ---
@@ -99,7 +106,7 @@ npm run docker:compose     # docker compose up --build
 | GET | `/api/catalog` | lista 302 APIs · filtros: `q`, `subcategory`, `pricing`, `minPopularity`, `sort`, `limit` |
 | GET | `/api/catalog/stats` | agregados por subcategoria e preço |
 | GET | `/api/catalog/:id` | uma API específica |
-| POST | `/api/invoke` | invoca 1 API · body: `{ apiId, endpoint?, mode?, query?, rapidApiKey? }` |
+| POST | `/api/invoke` | invoca 1 API · body: `{ apiId, endpoint?, mode?, query? }`; modo real pode exigir `X-Invoke-Token` |
 | POST | `/api/invoke/batch` | invoca até 50 APIs em paralelo |
 
 ### Exemplo
@@ -110,12 +117,12 @@ curl -s -X POST http://localhost:3000/api/invoke \
   -H "content-type: application/json" \
   -d '{"apiId":23,"mode":"mock","endpoint":"/v1/sports"}' | jq .
 
-# batch de 3 APIs em modo real
+# batch de 3 APIs em modo real com chave server-side
 curl -s -X POST http://localhost:3000/api/invoke/batch \
   -H "content-type: application/json" \
+  -H "X-Invoke-Token: SEU_TOKEN_INTERNO" \
   -d '{
     "mode":"real",
-    "rapidApiKey":"SUA_CHAVE",
     "items":[
       {"apiId":1,"endpoint":"/getMLBPlayerList"},
       {"apiId":23,"endpoint":"/v1/sports"},

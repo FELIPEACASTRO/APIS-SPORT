@@ -35,6 +35,10 @@ export function invokeSchema(body) {
   if (body.endpoint !== undefined) {
     if (typeof body.endpoint !== 'string' || body.endpoint.length > 1000) {
       errors.push('endpoint deve ser string < 1000 chars');
+    } else if (/^[a-z][a-z0-9+.-]*:\/\//i.test(body.endpoint) || body.endpoint.startsWith('//')) {
+      errors.push('endpoint deve ser caminho relativo, não URL absoluta');
+    } else if (/[\u0000-\u001f\u007f]/u.test(body.endpoint) || body.endpoint.includes('#')) {
+      errors.push('endpoint contém caracteres inválidos');
     } else out.endpoint = body.endpoint;
   }
 
@@ -50,9 +54,9 @@ export function invokeSchema(body) {
     } else {
       const cleanQuery = {};
       for (const [k, v] of Object.entries(body.query)) {
-        if (typeof k !== 'string' || k.length > 64) continue;
+        if (typeof k !== 'string' || k.length > 64 || !/^[A-Za-z0-9_.:-]+$/.test(k)) continue;
         const sv = String(v);
-        if (sv.length > 256) continue;
+        if (sv.length > 256 || /[\u0000-\u001f\u007f]/u.test(sv)) continue;
         cleanQuery[k] = sv;
       }
       out.query = cleanQuery;

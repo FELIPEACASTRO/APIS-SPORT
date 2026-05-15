@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: APIS // SPORT API
-  version: 3.0.0
+  version: 3.2.0
   description: |
     Gateway interno para invocar as 302 APIs de apostas do RapidAPI.
     Substitui o RapidAPI direto pelo seu próprio backend, mantendo a chave
@@ -74,19 +74,31 @@ paths:
     get:
       tags: [probes]
       summary: Métricas em formato Prometheus
+      security:
+        - MetricsToken: []
+        - BearerAuth: []
+        - {}
       responses:
         '200':
           description: Texto plain Prometheus 0.0.4
           content:
             text/plain: {}
+        '401': { description: METRICS_TOKEN configurado e token ausente }
+        '403': { description: METRICS_TOKEN configurado e token inválido }
 
   /api/metrics/json:
     get:
       tags: [probes]
       summary: Snapshot de métricas em JSON
+      security:
+        - MetricsToken: []
+        - BearerAuth: []
+        - {}
       responses:
         '200':
           description: OK
+        '401': { description: METRICS_TOKEN configurado e token ausente }
+        '403': { description: METRICS_TOKEN configurado e token inválido }
 
   /api/catalog:
     get:
@@ -141,6 +153,11 @@ paths:
     post:
       tags: [invoke]
       summary: Invoca uma API
+      description: Chamadas em `mode=real` podem exigir `X-Invoke-Token`/Bearer quando `REQUIRE_REAL_AUTH=true`. Em produção, o envio de `rapidApiKey` pelo cliente deve permanecer desabilitado.
+      security:
+        - InvokeToken: []
+        - BearerAuth: []
+        - {}
       requestBody:
         required: true
         content:
@@ -153,13 +170,21 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/InvokeResult' }
         '400': { description: Body inválido }
+        '401': { description: Token de modo real ausente }
+        '403': { description: Token inválido ou rapidApiKey do cliente desabilitada }
         '429': { description: Rate limit excedido }
         '502': { description: Erro do upstream (RapidAPI) }
+        '503': { description: Modo real indisponível por configuração }
 
   /api/invoke/batch:
     post:
       tags: [invoke]
       summary: Invoca até 50 APIs em paralelo
+      description: Chamadas em `mode=real` podem exigir `X-Invoke-Token`/Bearer quando `REQUIRE_REAL_AUTH=true`.
+      security:
+        - InvokeToken: []
+        - BearerAuth: []
+        - {}
       requestBody:
         required: true
         content:
@@ -190,9 +215,42 @@ paths:
                   results:
                     type: array
                     items: { $ref: '#/components/schemas/InvokeResult' }
+        '401': { description: Token de modo real ausente }
+        '403': { description: Token inválido ou rapidApiKey do cliente desabilitada }
         '413': { description: Mais de 50 itens }
+        '503': { description: Modo real indisponível por configuração }
+
+  /api/log-error:
+    post:
+      tags: [probes]
+      summary: Recebe erros JavaScript do cliente para debug operacional
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message: { type: string, maxLength: 500 }
+                source: { type: string, maxLength: 120 }
+                stack: { type: string, maxLength: 3000 }
+      responses:
+        '204': { description: Erro registrado }
+        '400': { description: Payload vazio ou inválido }
 
 components:
+  securitySchemes:
+    InvokeToken:
+      type: apiKey
+      in: header
+      name: X-Invoke-Token
+    MetricsToken:
+      type: apiKey
+      in: header
+      name: X-Metrics-Token
+    BearerAuth:
+      type: http
+      scheme: bearer
   schemas:
     Ok:
       type: object
@@ -251,7 +309,7 @@ components:
           additionalProperties: { type: string }
         rapidApiKey:
           type: string
-          description: Chave RapidAPI (opcional, sobrepõe a do servidor)
+          description: Chave RapidAPI opcional. Em produção, prefira chave server-side e mantenha ALLOW_CLIENT_RAPIDAPI_KEY=false.
 
     InvokeResult:
       type: object

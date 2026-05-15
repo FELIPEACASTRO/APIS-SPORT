@@ -41,9 +41,22 @@ export function loadCatalog() {
     all.push(...json.apis);
   }
 
+  const shapeErrors = [];
+  for (const api of all) {
+    const result = validateApiShape(api);
+    if (!result.ok) {
+      shapeErrors.push(`#${api?.id ?? '?'} ${api?.name ?? '(sem nome)'}: ${result.reason}`);
+    }
+  }
+  if (shapeErrors.length > 0) {
+    throw new Error(`Catálogo inválido: ${shapeErrors.slice(0, 5).join('; ')}`);
+  }
+
   // Indexação por id e host para acesso O(1)
   const byId = new Map(all.map((api) => [api.id, api]));
   const byHost = new Map(all.map((api) => [api.rapidapi_host, api]));
+  if (byId.size !== all.length) throw new Error('Catálogo inválido: ids duplicados');
+  if (byHost.size !== all.length) throw new Error('Catálogo inválido: rapidapi_host duplicado');
 
   // Estatísticas agregadas
   const stats = buildStats(all);

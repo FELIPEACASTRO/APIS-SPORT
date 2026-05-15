@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   test:
-    name: lint · test · qa · smoke
+    name: lint · test · qa · qa100x · smoke · integration
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -32,8 +32,15 @@ jobs:
         run: npm test
       - name: QA report
         run: npm run qa
+      - name: QA 100x double-check
+        run: npm run qa:100x
       - name: Smoke test (boots server e exercita 19 cenários)
         run: npm run smoke
+      - name: Integration test (boots server e cobre features críticas)
+        run: npm run integration
+      - name: Dependency audit (SCA)
+        run: npm audit --audit-level=moderate
+        continue-on-error: true
       - name: Upload smoke report
         if: always()
         uses: actions/upload-artifact@v4
