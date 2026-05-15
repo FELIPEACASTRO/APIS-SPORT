@@ -49,15 +49,23 @@ function str(name, def, allowed) {
   return raw;
 }
 
+const NODE_ENV = str('NODE_ENV', 'production', ['production', 'development', 'test']);
+
 export const config = {
   // Servidor
   PORT: num('PORT', 3000, 1, 65535),
   HOST: process.env.HOST || '0.0.0.0',
-  NODE_ENV: str('NODE_ENV', 'production', ['production', 'development', 'test']),
+  NODE_ENV,
 
   // RapidAPI proxy
   RAPIDAPI_KEY: process.env.RAPIDAPI_KEY || null,
   UPSTREAM_TIMEOUT_MS: num('UPSTREAM_TIMEOUT_MS', 10_000, 100, 60_000),
+  REAL_INVOKE_TOKEN: process.env.REAL_INVOKE_TOKEN || null,
+  REQUIRE_REAL_AUTH: bool('REQUIRE_REAL_AUTH', NODE_ENV === 'production'),
+  ALLOW_CLIENT_RAPIDAPI_KEY: bool('ALLOW_CLIENT_RAPIDAPI_KEY', NODE_ENV !== 'production'),
+
+  // Observability
+  METRICS_TOKEN: process.env.METRICS_TOKEN || null,
 
   // Logging
   LOG_LEVEL: str('LOG_LEVEL', 'info', ['debug', 'info', 'warn', 'error', 'silent']),
@@ -81,6 +89,14 @@ export const config = {
   SHUTDOWN_GRACE_MS: num('SHUTDOWN_GRACE_MS', 10_000, 0, 60_000),
 };
 
+if (config.CORS_ORIGIN === '*' && config.CORS_CREDENTIALS) {
+  throw new Error('Config inválida: CORS_CREDENTIALS=true não pode ser usado com CORS_ORIGIN=*');
+}
+
+if (config.NODE_ENV === 'production' && config.RAPIDAPI_KEY && config.REQUIRE_REAL_AUTH && !config.REAL_INVOKE_TOKEN) {
+  throw new Error('Config inválida: REAL_INVOKE_TOKEN é obrigatório em production quando RAPIDAPI_KEY está definida');
+}
+
 export function logConfigSummary(log) {
   const summary = {
     NODE_ENV: config.NODE_ENV,
@@ -97,6 +113,9 @@ export function logConfigSummary(log) {
     },
     upstream_timeout_ms: config.UPSTREAM_TIMEOUT_MS,
     trust_proxy: config.TRUST_PROXY,
+    real_auth_required: config.REQUIRE_REAL_AUTH,
+    allow_client_rapidapi_key: config.ALLOW_CLIENT_RAPIDAPI_KEY,
+    metrics_protected: Boolean(config.METRICS_TOKEN),
     has_rapidapi_key: Boolean(config.RAPIDAPI_KEY),
   };
   log.info({ msg: 'config loaded', config: summary });

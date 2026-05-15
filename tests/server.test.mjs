@@ -28,7 +28,7 @@ before(() => {
 
 after(() => new Promise((resolve) => server.close(resolve)));
 
-function request(method, path, body) {
+function request(method, path, body, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
     const url = new URL(path, baseUrl);
     const data = body ? Buffer.from(JSON.stringify(body)) : null;
@@ -41,6 +41,7 @@ function request(method, path, body) {
         headers: {
           'content-type': 'application/json',
           'content-length': data ? data.length : 0,
+          ...extraHeaders,
         },
       },
       (res) => {
@@ -178,7 +179,7 @@ test('POST /api/invoke em mode=real sem chave devolve status 502 (erro de gatewa
   assert.match(r.body.error, /chave|key/i);
 });
 
-// ── v3.0.0 — production-grade ──────────────────────────────────────────────
+// ── v3.2.0 — production-grade ──────────────────────────────────────────────
 test('GET /api/live retorna 200', async () => {
   const r = await request('GET', '/api/live');
   assert.equal(r.status, 200);
@@ -244,6 +245,19 @@ test('CORS preflight OPTIONS responde 204', async () => {
   assert.equal(r.status, 204);
 });
 
+test('CORS preflight permite headers de autenticação documentados', async () => {
+  const r = await request('OPTIONS', '/api/invoke', null, {
+    origin: 'http://localhost:3000',
+    'access-control-request-method': 'POST',
+    'access-control-request-headers': 'content-type, authorization, x-invoke-token, x-metrics-token',
+  });
+  assert.equal(r.status, 204);
+  const allowed = r.headers['access-control-allow-headers'].toLowerCase();
+  assert.match(allowed, /authorization/);
+  assert.match(allowed, /x-invoke-token/);
+  assert.match(allowed, /x-metrics-token/);
+});
+
 test('Validation: apiId não numérico retorna 400 estruturado', async () => {
   const r = await request('POST', '/api/invoke', { apiId: 'abc' });
   assert.equal(r.status, 400);
@@ -253,6 +267,34 @@ test('Validation: apiId não numérico retorna 400 estruturado', async () => {
 test('Validation: mode inválido retorna 400', async () => {
   const r = await request('POST', '/api/invoke', { apiId: 1, mode: 'fake' });
   assert.equal(r.status, 400);
+});
+
+
+
+test('Validation: endpoint absoluto é rejeitado', async () => {
+  const r = await request('POST', '/api/invoke', { apiId: 1, endpoint: 'https://evil.example/path' });
+  assert.equal(r.status, 400);
+  assert.ok(r.body.details.some((d) => /relativo|absoluta/i.test(d)));
+});
+
+test('Request ID inválido do cliente é substituído por UUID seguro', async () => {
+  const r = await new Promise((resolve, reject) => {
+    const url = new URL('/api/health', baseUrl);
+    const req = http.request(
+      { hostname: url.hostname, port: url.port, path: url.pathname, method: 'GET',
+        headers: { 'x-request-id': 'id inválido com espaço' } },
+      (res) => { let b=''; res.on('data', c => b+=c); res.on('end', () => resolve({headers:res.headers,body:JSON.parse(b)})); }
+    );
+    req.on('error', reject); req.end();
+  });
+  assert.notEqual(r.headers['x-request-id'], 'id inválido com espaço');
+  assert.match(r.headers['x-request-id'], /^[A-Za-z0-9._:-]+$/);
+});
+
+test('POST /api/log-error rejeita payload vazio', async () => {
+  const r = await request('POST', '/api/log-error', {});
+  assert.equal(r.status, 400);
+  assert.match(r.body.error, /vazio/);
 });
 
 test('Validation: batch com item inválido retorna 400 com detalhes', async () => {

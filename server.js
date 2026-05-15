@@ -25,7 +25,6 @@
 //   *                           SPA fallback (serve public/index.html)
 
 import express from 'express';
-import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import url from 'node:url';
@@ -127,6 +126,70 @@ app.use(express.static(path.join(__dirname, 'public'), {
 // /api/catalog/stats etc. (cliente sempre pega body fresco).
 if (isDev) app.set('etag', false);
 
+
+function bearerOrHeader(req, headerName) {
+  const direct = req.headers[headerName.toLowerCase()];
+  if (typeof direct === 'string' && direct) return direct;
+  const authorization = req.headers.authorization;
+  if (typeof authorization === 'string' && authorization.startsWith('Bearer ')) {
+    return authorization.slice('Bearer '.length).trim();
+  }
+  return '';
+}
+
+function requireMetricsToken(req, res, next) {
+  if (!config.METRICS_TOKEN) return next();
+  const token = bearerOrHeader(req, 'X-Metrics-Token');
+  if (token !== config.METRICS_TOKEN) {
+    return res.status(token ? 403 : 401).json({ error: 'metrics não autorizado', request_id: req.id });
+  }
+  next();
+}
+
+function hasChargeableRealInvoke(body) {
+  if (body.mode === 'mock') return false;
+  const hasKey = Boolean(body.rapidApiKey || config.RAPIDAPI_KEY);
+  if (body.mode === 'real') return hasKey;
+  return hasKey;
+}
+
+function requireRealInvokeAuth(req, res, next) {
+  const body = req.validBody || {};
+  const items = Array.isArray(body.items) ? body.items : [body];
+  const usesClientKey = Boolean(body.rapidApiKey || items.some((item) => item.rapidApiKey));
+  if (usesClientKey && !config.ALLOW_CLIENT_RAPIDAPI_KEY) {
+    return res.status(403).json({
+      error: 'rapidApiKey no cliente está desabilitada neste ambiente',
+      request_id: req.id,
+    });
+  }
+
+  const hasChargeableRealCall = hasChargeableRealInvoke(body) || items.some((item) =>
+    hasChargeableRealInvoke({ ...item, rapidApiKey: item.rapidApiKey || body.rapidApiKey }),
+  );
+  if (!hasChargeableRealCall || !config.REQUIRE_REAL_AUTH) return next();
+
+  if (!config.REAL_INVOKE_TOKEN) {
+    return res.status(503).json({
+      error: 'modo real indisponível: REAL_INVOKE_TOKEN não configurado',
+      request_id: req.id,
+    });
+  }
+
+  const token = bearerOrHeader(req, 'X-Invoke-Token');
+  if (token !== config.REAL_INVOKE_TOKEN) {
+    return res.status(token ? 403 : 401).json({
+      error: 'modo real não autorizado',
+      request_id: req.id,
+    });
+  }
+  next();
+}
+
+function truncate(value, max) {
+  return String(value || '').slice(0, max);
+}
+
 // ── Health / Probes ─────────────────────────────────────────────────────────
 app.get('/api/live', (_req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
@@ -160,12 +223,12 @@ app.get('/api/version', (_req, res) => {
   res.json(BUILD_INFO);
 });
 
-app.get('/api/metrics', (_req, res) => {
+app.get('/api/metrics', requireMetricsToken, (_req, res) => {
   res.set('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
   res.send(toPrometheus());
 });
 
-app.get('/api/metrics/json', (_req, res) => {
+app.get('/api/metrics/json', requireMetricsToken, (_req, res) => {
   res.json(snapshot());
 });
 
@@ -196,7 +259,13 @@ app.get('/api/catalog', (req, res) => {
 
 // Endpoint para receber erros JS do cliente (debug)
 app.post('/api/log-error', (req, res) => {
-  const { message, stack, source } = req.body || {};
+  const body = (req.body && typeof req.body === 'object') ? req.body : {};
+  const message = truncate(body.message, 500);
+  const source = truncate(body.source, 120);
+  const stack = truncate(body.stack, 3000);
+  if (!message && !stack) {
+    return res.status(400).json({ error: 'erro do cliente vazio', request_id: req.id });
+  }
   log.error({
     msg: 'client error',
     client_message: message,
@@ -222,7 +291,7 @@ app.get('/api/catalog/:id', (req, res) => {
 });
 
 // ── Invoke ──────────────────────────────────────────────────────────────────
-app.post('/api/invoke', invokeLimiter, validateBody(invokeSchema), async (req, res) => {
+app.post('/api/invoke', invokeLimiter, validateBody(invokeSchema), requireRealInvokeAuth, async (req, res) => {
   const { apiId, endpoint, mode, query, rapidApiKey } = req.validBody;
   const result = await invokeApi({
     apiId,
@@ -239,7 +308,7 @@ app.post('/api/invoke', invokeLimiter, validateBody(invokeSchema), async (req, r
   res.status(httpStatus).json({ ...result, request_id: req.id });
 });
 
-app.post('/api/invoke/batch', invokeLimiter, validateBody(invokeBatchSchema), async (req, res) => {
+app.post('/api/invoke/batch', invokeLimiter, validateBody(invokeBatchSchema), requireRealInvokeAuth, async (req, res) => {
   const { items, mode, rapidApiKey } = req.validBody;
   const key = rapidApiKey || config.RAPIDAPI_KEY;
 
@@ -256,7 +325,7 @@ app.post('/api/invoke/batch', invokeLimiter, validateBody(invokeBatchSchema), as
           endpoint: item.endpoint,
           mode: item.mode || mode,
           query: item.query,
-          rapidApiKey: key,
+          rapidApiKey: item.rapidApiKey || key,
         }),
       ),
     );

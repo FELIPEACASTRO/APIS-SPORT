@@ -1,9 +1,9 @@
 # APIS&nbsp;//&nbsp;SPORT
 
 [![CI](https://img.shields.io/github/actions/workflow/status/FELIPEACASTRO/APIS-SPORT/ci.yml?label=CI)](https://github.com/FELIPEACASTRO/APIS-SPORT/actions)
-[![Node](https://img.shields.io/badge/node-22%2B-brightgreen)](#)
+[![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](#)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Version](https://img.shields.io/badge/version-3.0.0-blueviolet)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-3.2.0-blueviolet)](CHANGELOG.md)
 
 > Plataforma **production-grade** para invocar as **302 APIs de apostas esportivas** do RapidAPI mapeadas no dossiê de 11/05/2026.
 
@@ -25,9 +25,9 @@ Abra o navegador, filtre por subcategoria/preço/popularidade, marque as APIs e 
 | Modo | Quando usar | Requer chave |
 |---|---|---|
 | **Mock** | Demo, QA, desenvolvimento offline | ❌ |
-| **Real** | Chamada real ao RapidAPI | ✅ `X-RapidAPI-Key` |
+| **Real** | Chamada real ao RapidAPI via chave server-side | ✅ `RAPIDAPI_KEY` + `REAL_INVOKE_TOKEN` em produção |
 
-Para usar modo real, ou cole sua chave na UI (campo `RapidAPI Key`) ou exporte `RAPIDAPI_KEY=...` antes de subir o servidor.
+Para produção, configure `RAPIDAPI_KEY` no servidor e proteja chamadas reais com `REAL_INVOKE_TOKEN` (`X-Invoke-Token` ou `Authorization: Bearer ...`). O envio de chave RapidAPI pelo browser deve permanecer desabilitado com `ALLOW_CLIENT_RAPIDAPI_KEY=false`.
 
 ---
 
@@ -46,11 +46,13 @@ Para usar modo real, ou cole sua chave na UI (campo `RapidAPI Key`) ou exporte `
 │   └── app.js                   # ESM module — filtros, seleção, batch, render
 ├── data/bets-apis/              # catálogo fonte (302 APIs em 3 JSONs)
 ├── tests/
-│   ├── catalog.test.mjs         # 10 testes — shape, distribuição, filtros
-│   ├── invoker.test.mjs         # 6 testes — incluindo "TODAS as 302 APIs em mock"
-│   └── server.test.mjs          # 10 testes — rotas HTTP do Express
+│   ├── catalog.test.mjs         # shape, distribuição, filtros
+│   ├── config.test.mjs          # hardening de env/config
+│   ├── invoker.test.mjs         # invoker + TODAS as 302 APIs em mock
+│   └── server.test.mjs          # rotas HTTP, validação e regressões
 └── scripts/
-    └── qa-report.mjs            # relatório executivo (PASS/FAIL para 302 APIs)
+    ├── qa-report.mjs            # relatório executivo (PASS/FAIL para 302 APIs)
+    └── qa-100x.mjs              # double-check 100x: contrato, segurança, UX/UI/A11y
 ```
 
 ---
@@ -61,11 +63,13 @@ Para usar modo real, ou cole sua chave na UI (campo `RapidAPI Key`) ou exporte `
 npm start                  # produção (Node)
 npm run dev                # --watch
 npm run lint               # ESLint (zero erros é requisito)
-npm test                   # 45 testes unitários
+npm test                   # suíte Node test (60+ cenários)
+npm run coverage           # cobertura nativa do node:test
 npm run qa                 # QA report — 302/302 mock-302 OK
+npm run qa:100x            # double-check 100x: contrato, segurança, dados, UX/UI/A11y
 npm run qa -- --real       # + amostra real (requer RAPIDAPI_KEY)
-npm run smoke              # 25 cenários end-to-end
-npm run homolog            # pipeline completo: lint + test + qa + smoke
+npm run smoke              # 25+ cenários end-to-end
+npm run homolog            # pipeline completo: lint + test + qa + qa:100x + smoke + integration
 npm run docker:build       # docker build .
 npm run docker:run         # docker run apis-sport:latest
 npm run docker:compose     # docker compose up --build
@@ -80,14 +84,37 @@ npm run docker:compose     # docker compose up --build
 | [CHANGELOG.md](CHANGELOG.md) | Release notes |
 | [openapi.yaml](openapi.yaml) | Spec OpenAPI 3.1 dos endpoints |
 | [data/bets-apis/CATALOG.md](data/bets-apis/CATALOG.md) | Catálogo legível das 302 APIs |
+| [docs/audits/2026-05-15-auditoria-boas-praticas.md](docs/audits/2026-05-15-auditoria-boas-praticas.md) | Auditoria de boas práticas: arquitetura, SOLID, Big O, patterns, testes e cobertura |
 
 ### Variáveis de ambiente
 
 | Variável | Default | Função |
 |---|---|---|
 | `PORT` | `3000` | porta do servidor |
-| `RAPIDAPI_KEY` | — | chave RapidAPI usada pelo proxy real |
+| `RAPIDAPI_KEY` | — | chave RapidAPI server-side usada pelo proxy real |
+| `REAL_INVOKE_TOKEN` | — | token interno para liberar modo real em produção |
+| `REQUIRE_REAL_AUTH` | `true` em produção | exige `X-Invoke-Token`/Bearer para chamadas reais com chave server-side |
+| `ALLOW_CLIENT_RAPIDAPI_KEY` | `false` em produção | controla se o body pode trazer `rapidApiKey`; mantenha `false` em produção |
+| `METRICS_TOKEN` | — | protege `/api/metrics*` quando configurado |
 | `QA_REAL_SAMPLE` | `3` | tamanho da amostra real no QA |
+
+---
+
+## Arquitetura, qualidade e boas práticas
+
+| Tema | Decisão atual | Status |
+|---|---|---|
+| Arquitetura | Monólito modular / BFF Node.js com frontend estático, módulos ESM e middlewares coesos. | Adequado para catálogo estático e proxy RapidAPI; separar UI/CDN e gateway se houver alta escala. |
+| Abstração e coesão | `catalog`, `invoker`, `mock`, `metrics`, `logger`, `config` e middlewares têm responsabilidades explícitas. | Bom; `server.js` concentra composição HTTP e pode ser quebrado em routers se crescer. |
+| Acoplamento | Camada de domínio não depende de Express; `invoker` recebe descritor puro e `catalog` expõe consulta/indexação. | Bom para testes; acoplamento com arquivos JSON é intencional. |
+| Extensibilidade | Modo mock/real funciona como Strategy; gerador mock por subcategoria funciona como Factory simples; catálogo em cache é Singleton de processo. | Bom; futuros provedores podem virar adapters atrás do `invokeApi`. |
+| Big O | `loadCatalog()` inicial é `O(n log n)` por ordenações estatísticas; `getApiById()` é `O(1)`; filtros/listagens são `O(n)` + sort opcional `O(k log k)`; batch é `O(m)` com concorrência 10. | Adequado para `n=302`; revisar paginação/indexação se o catálogo crescer muito. |
+| Microservices patterns | Gateway/BFF + Anti-Corruption Layer contra RapidAPI; não há CQRS/SAGA por não existir transação distribuída ou escrita assíncrona. | Decisão correta para o escopo; rate limit/métricas em memória exigem Redis/edge em multi-réplica. |
+| Clean Architecture / SOLID | Separação parcial em camadas: HTTP → validação/auth → casos de uso (`invokeApi`, catálogo) → infraestrutura (`fetch`, FS). | Boa base; falta inversão formal de dependência para upstream se múltiplos providers entrarem. |
+| Testes | Unitários, integração HTTP real local, smoke, QA report e `qa:100x` destrutivo. | Bom; cobertura nativa disponível via `npm run coverage`. |
+| Cobertura atual | `node --experimental-test-coverage --test tests/*.test.mjs`: linhas **81.89%**, branches **75.91%**, funções **85.96%** na última execução local. | Aceitável; ampliar `shutdown`, `rate-limit`, branches de erro real e pretty logger. |
+
+A análise completa, incluindo aderência a Clean Code, SOLID, Design Patterns e recomendações priorizadas, está em [`docs/audits/2026-05-15-auditoria-boas-praticas.md`](docs/audits/2026-05-15-auditoria-boas-praticas.md).
 
 ---
 
@@ -99,7 +126,7 @@ npm run docker:compose     # docker compose up --build
 | GET | `/api/catalog` | lista 302 APIs · filtros: `q`, `subcategory`, `pricing`, `minPopularity`, `sort`, `limit` |
 | GET | `/api/catalog/stats` | agregados por subcategoria e preço |
 | GET | `/api/catalog/:id` | uma API específica |
-| POST | `/api/invoke` | invoca 1 API · body: `{ apiId, endpoint?, mode?, query?, rapidApiKey? }` |
+| POST | `/api/invoke` | invoca 1 API · body: `{ apiId, endpoint?, mode?, query? }`; modo real pode exigir `X-Invoke-Token` |
 | POST | `/api/invoke/batch` | invoca até 50 APIs em paralelo |
 
 ### Exemplo
@@ -110,12 +137,12 @@ curl -s -X POST http://localhost:3000/api/invoke \
   -H "content-type: application/json" \
   -d '{"apiId":23,"mode":"mock","endpoint":"/v1/sports"}' | jq .
 
-# batch de 3 APIs em modo real
+# batch de 3 APIs em modo real com chave server-side
 curl -s -X POST http://localhost:3000/api/invoke/batch \
   -H "content-type: application/json" \
+  -H "X-Invoke-Token: SEU_TOKEN_INTERNO" \
   -d '{
     "mode":"real",
-    "rapidApiKey":"SUA_CHAVE",
     "items":[
       {"apiId":1,"endpoint":"/getMLBPlayerList"},
       {"apiId":23,"endpoint":"/v1/sports"},

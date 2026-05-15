@@ -8,7 +8,17 @@ const LEVELS = { debug: 10, info: 20, warn: 30, error: 40, silent: 99 };
 const CURRENT_LEVEL = LEVELS[config.LOG_LEVEL] ?? LEVELS.info;
 const FMT = config.LOG_FORMAT;
 
-const REDACT = new Set(['rapidApiKey', 'rapidapi-key', 'x-rapidapi-key', 'authorization', 'cookie']);
+const REDACT = new Set([
+  'rapidapikey',
+  'rapidapi-key',
+  'x-rapidapi-key',
+  'authorization',
+  'cookie',
+  'real_invoke_token',
+  'x-invoke-token',
+  'metrics_token',
+  'x-metrics-token',
+]);
 
 function redact(obj) {
   if (!obj || typeof obj !== 'object') return obj;

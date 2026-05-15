@@ -14,7 +14,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY . .
-RUN npm test && npm run qa
+RUN npm test && npm run qa && npm run qa:100x
 
 # ── Stage 3: runtime ────────────────────────────────────────────────────────
 FROM node:22-alpine AS runtime

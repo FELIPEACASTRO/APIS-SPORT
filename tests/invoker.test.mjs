@@ -86,3 +86,11 @@ test('TODAS as 302 APIs respondem em modo mock (chamada end-to-end)', async () =
     assert.equal(r.data._mock, true);
   }
 });
+
+
+test('invokeApi com apiId inexistente retorna erro estruturado 404', async () => {
+  const r = await invokeApi({ apiId: 99999, mode: 'mock' });
+  assert.equal(r.ok, false);
+  assert.equal(r.status, 404);
+  assert.match(r.error, /não encontrada/);
+});

@@ -226,7 +226,7 @@ function renderScatter(points, latP95) {
   const dots = points
     .map(
       (p) => `<circle class="dot" cx="${xToPx(p.x)}" cy="${yToPx(p.y)}" r="${rToPx(p.r)}">
-        <title>#${pad3(p.id)} ${p.name} · ${p.x}ms · ${p.y}% · pop ${p.r}</title>
+        <title>#${pad3(p.id)} ${escape(p.name)} · ${p.x}ms · ${p.y}% · pop ${p.r}</title>
       </circle>`,
     )
     .join('');

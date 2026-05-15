@@ -458,7 +458,7 @@ async function executeSelected() {
   if (s.mode === 'real' && s.selected.size > 20) {
     const ok = await confirmDialog({
       title: 'Batch grande em modo real',
-      body: `Você está prestes a executar <strong>${s.selected.size} chamadas reais</strong> ao RapidAPI. Isso vai consumir cota da sua chave. Deseja continuar?`,
+      body: `Você está prestes a executar ${s.selected.size} chamadas reais ao RapidAPI. Isso vai consumir cota da sua chave. Deseja continuar?`,
       confirmText: 'Executar',
     });
     if (!ok) return;
@@ -578,7 +578,7 @@ function confirmDialog({ title, body, confirmText = 'Confirmar' }) {
   return new Promise((resolve) => {
     const dlg = $('#confirm');
     $('#confirm-title').textContent = title || 'Confirmar';
-    $('#confirm-body').innerHTML = body || '';
+    $('#confirm-body').textContent = body || '';
     const btnOk = dlg.querySelector('[data-confirm="ok"]');
     const btnCancel = dlg.querySelector('[data-confirm="cancel"]');
     btnOk.textContent = confirmText;

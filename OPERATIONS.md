@@ -120,13 +120,19 @@ spec:
     spec:
       containers:
         - name: app
-          image: apis-sport:3.0.0
+          image: apis-sport:3.2.0
           ports: [{ containerPort: 3000 }]
           env:
             - { name: NODE_ENV, value: production }
             - { name: LOG_FORMAT, value: json }
             - name: RAPIDAPI_KEY
               valueFrom: { secretKeyRef: { name: rapidapi, key: key } }
+            - name: REAL_INVOKE_TOKEN
+              valueFrom: { secretKeyRef: { name: rapidapi, key: invoke-token } }
+            - { name: REQUIRE_REAL_AUTH, value: "true" }
+            - { name: ALLOW_CLIENT_RAPIDAPI_KEY, value: "false" }
+            - name: METRICS_TOKEN
+              valueFrom: { secretKeyRef: { name: observability, key: metrics-token } }
           readinessProbe:
             httpGet: { path: /api/ready, port: 3000 }
             initialDelaySeconds: 3
@@ -151,7 +157,11 @@ spec:
 | `NODE_ENV` | `production` | `production`/`development`/`test` |
 | `LOG_LEVEL` | `info` | `debug`/`info`/`warn`/`error`/`silent` |
 | `LOG_FORMAT` | `pretty` | `pretty` (terminal) ou `json` (estruturado p/ ELK) |
-| `RAPIDAPI_KEY` | — | Chave global; cliente também pode enviar por request |
+| `RAPIDAPI_KEY` | — | Chave global server-side para modo real |
+| `REAL_INVOKE_TOKEN` | — | Token interno exigido para chamadas reais quando `REQUIRE_REAL_AUTH=true` |
+| `REQUIRE_REAL_AUTH` | `true` em produção | Exige `X-Invoke-Token`/Bearer em chamadas reais com chave server-side |
+| `ALLOW_CLIENT_RAPIDAPI_KEY` | `false` em produção | Permite/bloqueia chave RapidAPI enviada pelo body; mantenha `false` em produção |
+| `METRICS_TOKEN` | — | Protege `/api/metrics` e `/api/metrics/json` quando configurado |
 | `UPSTREAM_TIMEOUT_MS` | `10000` | Timeout p/ RapidAPI |
 | `CORS_ORIGIN` | `*` | `*` ou lista CSV de origins |
 | `CORS_CREDENTIALS` | `false` | — |
