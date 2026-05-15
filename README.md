@@ -64,6 +64,7 @@ npm start                  # produção (Node)
 npm run dev                # --watch
 npm run lint               # ESLint (zero erros é requisito)
 npm test                   # suíte Node test (60+ cenários)
+npm run coverage           # cobertura nativa do node:test
 npm run qa                 # QA report — 302/302 mock-302 OK
 npm run qa:100x            # double-check 100x: contrato, segurança, dados, UX/UI/A11y
 npm run qa -- --real       # + amostra real (requer RAPIDAPI_KEY)
@@ -83,6 +84,7 @@ npm run docker:compose     # docker compose up --build
 | [CHANGELOG.md](CHANGELOG.md) | Release notes |
 | [openapi.yaml](openapi.yaml) | Spec OpenAPI 3.1 dos endpoints |
 | [data/bets-apis/CATALOG.md](data/bets-apis/CATALOG.md) | Catálogo legível das 302 APIs |
+| [docs/audits/2026-05-15-auditoria-boas-praticas.md](docs/audits/2026-05-15-auditoria-boas-praticas.md) | Auditoria de boas práticas: arquitetura, SOLID, Big O, patterns, testes e cobertura |
 
 ### Variáveis de ambiente
 
@@ -95,6 +97,24 @@ npm run docker:compose     # docker compose up --build
 | `ALLOW_CLIENT_RAPIDAPI_KEY` | `false` em produção | controla se o body pode trazer `rapidApiKey`; mantenha `false` em produção |
 | `METRICS_TOKEN` | — | protege `/api/metrics*` quando configurado |
 | `QA_REAL_SAMPLE` | `3` | tamanho da amostra real no QA |
+
+---
+
+## Arquitetura, qualidade e boas práticas
+
+| Tema | Decisão atual | Status |
+|---|---|---|
+| Arquitetura | Monólito modular / BFF Node.js com frontend estático, módulos ESM e middlewares coesos. | Adequado para catálogo estático e proxy RapidAPI; separar UI/CDN e gateway se houver alta escala. |
+| Abstração e coesão | `catalog`, `invoker`, `mock`, `metrics`, `logger`, `config` e middlewares têm responsabilidades explícitas. | Bom; `server.js` concentra composição HTTP e pode ser quebrado em routers se crescer. |
+| Acoplamento | Camada de domínio não depende de Express; `invoker` recebe descritor puro e `catalog` expõe consulta/indexação. | Bom para testes; acoplamento com arquivos JSON é intencional. |
+| Extensibilidade | Modo mock/real funciona como Strategy; gerador mock por subcategoria funciona como Factory simples; catálogo em cache é Singleton de processo. | Bom; futuros provedores podem virar adapters atrás do `invokeApi`. |
+| Big O | `loadCatalog()` inicial é `O(n log n)` por ordenações estatísticas; `getApiById()` é `O(1)`; filtros/listagens são `O(n)` + sort opcional `O(k log k)`; batch é `O(m)` com concorrência 10. | Adequado para `n=302`; revisar paginação/indexação se o catálogo crescer muito. |
+| Microservices patterns | Gateway/BFF + Anti-Corruption Layer contra RapidAPI; não há CQRS/SAGA por não existir transação distribuída ou escrita assíncrona. | Decisão correta para o escopo; rate limit/métricas em memória exigem Redis/edge em multi-réplica. |
+| Clean Architecture / SOLID | Separação parcial em camadas: HTTP → validação/auth → casos de uso (`invokeApi`, catálogo) → infraestrutura (`fetch`, FS). | Boa base; falta inversão formal de dependência para upstream se múltiplos providers entrarem. |
+| Testes | Unitários, integração HTTP real local, smoke, QA report e `qa:100x` destrutivo. | Bom; cobertura nativa disponível via `npm run coverage`. |
+| Cobertura atual | `node --experimental-test-coverage --test tests/*.test.mjs`: linhas **81.89%**, branches **75.91%**, funções **85.96%** na última execução local. | Aceitável; ampliar `shutdown`, `rate-limit`, branches de erro real e pretty logger. |
+
+A análise completa, incluindo aderência a Clean Code, SOLID, Design Patterns e recomendações priorizadas, está em [`docs/audits/2026-05-15-auditoria-boas-praticas.md`](docs/audits/2026-05-15-auditoria-boas-praticas.md).
 
 ---
 

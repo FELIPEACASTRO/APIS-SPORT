@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "node --test tests/*.test.mjs",
+    "coverage": "node --experimental-test-coverage --test tests/*.test.mjs",
     "qa": "node scripts/qa-report.mjs",
     "qa:json": "node scripts/qa-report.mjs --json",
     "qa:100x": "node scripts/qa-100x.mjs",

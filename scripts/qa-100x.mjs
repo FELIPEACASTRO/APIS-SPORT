@@ -78,7 +78,8 @@ function staticContractChecks() {
   assertCheck('lockfile v3+ presente', lock.lockfileVersion >= 3 && Boolean(lock.packages?.['']));
   assertCheck('dependência runtime única esperada é express', Object.keys(pkg.dependencies || {}).join(',') === 'express');
   assertCheck('start script sobe node server.js', pkg.scripts.start === 'node server.js');
-  for (const script of ['lint', 'test', 'qa', 'qa:100x', 'smoke', 'integration', 'homolog']) {
+  assertCheck('coverage usa cobertura nativa do node:test', pkg.scripts.coverage === 'node --experimental-test-coverage --test tests/*.test.mjs');
+  for (const script of ['lint', 'test', 'coverage', 'qa', 'qa:100x', 'smoke', 'integration', 'homolog']) {
     assertCheck(`script npm obrigatório existe: ${script}`, Boolean(pkg.scripts[script]));
   }
   assertCheck('homolog inclui lint/test/qa/qa:100x/smoke/integration', ['npm run lint', 'npm test', 'npm run qa', 'npm run qa:100x', 'npm run smoke', 'npm run integration'].every((cmd) => pkg.scripts.homolog.includes(cmd)));
